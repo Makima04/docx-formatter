@@ -27,9 +27,6 @@ COPY pyproject.toml .
 RUN mkdir -p python
 COPY engine/Cargo.toml engine/Cargo.lock ./engine/
 
-# Pre-fetch Rust crates so downloads are cached in a layer
-RUN cargo fetch --manifest-path engine/Cargo.toml
-
 # Copy real source and build — registry + target are cached via BuildKit mounts
 COPY engine/ ./engine/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
