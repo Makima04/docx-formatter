@@ -17,10 +17,12 @@ RUN npm run build
 # ==============================
 # Stage 1: Build Rust extension
 # ==============================
-FROM rust:1.88-bookworm AS rust-builder
+FROM python:3.12-bookworm AS rust-builder
 
-RUN apt-get update && apt-get install -y python3-dev python3-pip && rm -rf /var/lib/apt/lists/*
-RUN pip3 install --break-system-packages maturin[patchelf]
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.88
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+RUN pip install --no-cache-dir "maturin[patchelf]"
 
 WORKDIR /build
 COPY pyproject.toml .
@@ -28,7 +30,7 @@ COPY engine/Cargo.toml engine/Cargo.lock ./engine/
 
 # Copy real source and build — registry + target are cached via BuildKit mounts
 COPY engine/ ./engine/
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
+RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/build/engine/target \
     maturin build --release --out /wheels
 
