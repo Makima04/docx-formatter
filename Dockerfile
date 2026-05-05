@@ -10,7 +10,7 @@ RUN npm ci && npm run build
 # ==============================
 # Stage 1: Build Rust extension
 # ==============================
-FROM rust:1.80-bookworm AS rust-builder
+FROM rust:1.85-bookworm AS rust-builder
 
 RUN apt-get update && apt-get install -y python3-dev python3-pip && rm -rf /var/lib/apt/lists/*
 RUN pip3 install --break-system-packages maturin[patchelf]
