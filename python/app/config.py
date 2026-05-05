@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     llm_enable_classification: bool = True
     llm_enable_template_parse: bool = True
 
+    admin_api_key: Optional[str] = None
+
     model_config = {"env_prefix": "DOCFMT_", "env_file": ".env"}
 
 

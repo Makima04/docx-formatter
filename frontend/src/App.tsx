@@ -6,10 +6,11 @@ import Home from './pages/Home';
 import Templates from './pages/Templates';
 import Batch from './pages/Batch';
 import History from './pages/History';
+import Admin from './pages/Admin';
 import { useAuth } from './hooks/useAuth';
 import { checkCode } from './api/client';
 
-export default function App() {
+function MainApp() {
   const { code, setCode, valid, remaining, checking } = useAuth();
   const [loginError, setLoginError] = React.useState('');
 
@@ -47,15 +48,24 @@ export default function App() {
   }
 
   return (
+    <Layout code={code} remaining={remaining} onLogout={handleLogout}>
+      <Routes>
+        <Route path="/" element={<Home code={code} onQuotaChange={refreshQuota} />} />
+        <Route path="/batch" element={<Batch code={code} onQuotaChange={refreshQuota} />} />
+        <Route path="/templates" element={<Templates />} />
+        <Route path="/history" element={<History />} />
+      </Routes>
+    </Layout>
+  );
+}
+
+export default function App() {
+  return (
     <BrowserRouter>
-      <Layout code={code} remaining={remaining} onLogout={handleLogout}>
-        <Routes>
-          <Route path="/" element={<Home code={code} onQuotaChange={refreshQuota} />} />
-          <Route path="/batch" element={<Batch code={code} onQuotaChange={refreshQuota} />} />
-          <Route path="/templates" element={<Templates />} />
-          <Route path="/history" element={<History />} />
-        </Routes>
-      </Layout>
+      <Routes>
+        <Route path="/admin" element={<Admin />} />
+        <Route path="/*" element={<MainApp />} />
+      </Routes>
     </BrowserRouter>
   );
 }

@@ -74,3 +74,36 @@ def list_codes() -> list[dict]:
     with get_db() as conn:
         rows = conn.execute("SELECT * FROM redeem_codes ORDER BY created_at DESC").fetchall()
     return [dict(r) for r in rows]
+
+
+def update_code(code_id: int, total_quota: Optional[int] = None,
+                is_active: Optional[bool] = None, expires_at: Optional[str] = None,
+                clear_expires: bool = False) -> bool:
+    """Update a redeem code (admin operation)."""
+    fields, values = [], []
+    if total_quota is not None:
+        fields.append("total_quota = ?")
+        values.append(total_quota)
+    if is_active is not None:
+        fields.append("is_active = ?")
+        values.append(1 if is_active else 0)
+    if clear_expires:
+        fields.append("expires_at = NULL")
+    elif expires_at is not None:
+        fields.append("expires_at = ?")
+        values.append(expires_at)
+    if not fields:
+        return False
+    values.append(code_id)
+    with get_db() as conn:
+        result = conn.execute(
+            f"UPDATE redeem_codes SET {', '.join(fields)} WHERE id = ?", values
+        )
+        return result.rowcount > 0
+
+
+def delete_code(code_id: int) -> bool:
+    """Delete a redeem code (admin operation)."""
+    with get_db() as conn:
+        result = conn.execute("DELETE FROM redeem_codes WHERE id = ?", (code_id,))
+        return result.rowcount > 0

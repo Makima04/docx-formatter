@@ -174,7 +174,7 @@ async def download_result(task_id: str):
 
 # ── Serve frontend static files ──────────────────────────────────────
 
-_static_dir = Path(__file__).parent.parent / "static"
+_static_dir = Path(__file__).parent.parent.parent / "static"
 
 if _static_dir.exists():
     app.mount("/assets", StaticFiles(directory=str(_static_dir / "assets")), name="static-assets")

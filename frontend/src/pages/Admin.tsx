@@ -1,0 +1,431 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  listAdminCodes,
+  createAdminCode,
+  updateAdminCode,
+  deleteAdminCode,
+  type RedeemCodeItem,
+} from '../api/client';
+
+const ADMIN_KEY_STORAGE = 'docfmt_admin_key';
+
+const cardStyle: React.CSSProperties = {
+  background: '#fff',
+  borderRadius: 12,
+  boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+  padding: '28px 32px',
+  marginBottom: 24,
+};
+
+const btnPrimary: React.CSSProperties = {
+  padding: '8px 18px',
+  background: '#1a73e8',
+  color: '#fff',
+  border: 'none',
+  borderRadius: 6,
+  fontSize: 13,
+  fontWeight: 500,
+  cursor: 'pointer',
+};
+
+const btnDanger: React.CSSProperties = {
+  padding: '6px 14px',
+  background: '#fce8e6',
+  color: '#c5221f',
+  border: 'none',
+  borderRadius: 6,
+  fontSize: 12,
+  cursor: 'pointer',
+};
+
+const btnSmall: React.CSSProperties = {
+  padding: '4px 10px',
+  background: '#e8f0fe',
+  color: '#1a73e8',
+  border: 'none',
+  borderRadius: 5,
+  fontSize: 12,
+  cursor: 'pointer',
+};
+
+const inputStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '10px 12px',
+  border: '1px solid #dadce0',
+  borderRadius: 8,
+  fontSize: 14,
+  background: '#fff',
+  outline: 'none',
+  boxSizing: 'border-box',
+};
+
+const thStyle: React.CSSProperties = {
+  textAlign: 'left',
+  padding: '10px 12px',
+  fontSize: 12,
+  fontWeight: 600,
+  color: '#5f6368',
+  borderBottom: '2px solid #e8eaed',
+  whiteSpace: 'nowrap',
+};
+
+const tdStyle: React.CSSProperties = {
+  padding: '10px 12px',
+  fontSize: 13,
+  borderBottom: '1px solid #f1f3f4',
+};
+
+export default function Admin() {
+  const [adminKey, setAdminKey] = useState('');
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [codes, setCodes] = useState<RedeemCodeItem[]>([]);
+  const [error, setError] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+
+  // Create form state
+  const [newCode, setNewCode] = useState('');
+  const [newQuota, setNewQuota] = useState('100');
+  const [newExpiry, setNewExpiry] = useState('');
+
+  // Edit state
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editQuota, setEditQuota] = useState('');
+  const [editExpiry, setEditExpiry] = useState('');
+
+  // Try restoring from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem(ADMIN_KEY_STORAGE);
+    if (saved) {
+      setAdminKey(saved);
+      setLoggedIn(true);
+    }
+  }, []);
+
+  const load = useCallback(async () => {
+    if (!adminKey) return;
+    try {
+      setCodes(await listAdminCodes(adminKey));
+    } catch (e: unknown) {
+      if (e instanceof Error && e.message.includes('403')) {
+        setLoggedIn(false);
+        localStorage.removeItem(ADMIN_KEY_STORAGE);
+        setError('Admin key 无效');
+      } else {
+        setError(e instanceof Error ? e.message : '加载失败');
+      }
+    }
+  }, [adminKey]);
+
+  useEffect(() => {
+    if (loggedIn) load();
+  }, [loggedIn, load]);
+
+  const handleLogin = () => {
+    setError('');
+    if (!adminKey.trim()) {
+      setError('请输入 Admin Key');
+      return;
+    }
+    localStorage.setItem(ADMIN_KEY_STORAGE, adminKey.trim());
+    setLoggedIn(true);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem(ADMIN_KEY_STORAGE);
+    setAdminKey('');
+    setLoggedIn(false);
+    setCodes([]);
+  };
+
+  const handleCreate = async () => {
+    setError('');
+    try {
+      await createAdminCode(adminKey, {
+        code: newCode,
+        total_quota: parseInt(newQuota) || 100,
+        expires_at: newExpiry || undefined,
+      });
+      setShowCreate(false);
+      setNewCode('');
+      setNewQuota('100');
+      setNewExpiry('');
+      load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : '创建失败');
+    }
+  };
+
+  const handleToggleActive = async (item: RedeemCodeItem) => {
+    setError('');
+    try {
+      await updateAdminCode(adminKey, item.id, { is_active: !item.is_active });
+      load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : '更新失败');
+    }
+  };
+
+  const handleStartEdit = (item: RedeemCodeItem) => {
+    setEditingId(item.id);
+    setEditQuota(String(item.total_quota));
+    setEditExpiry(item.expires_at ? item.expires_at.slice(0, 16) : '');
+  };
+
+  const handleSaveEdit = async () => {
+    if (editingId == null) return;
+    setError('');
+    try {
+      await updateAdminCode(adminKey, editingId, {
+        total_quota: parseInt(editQuota) || undefined,
+        clear_expires: !editExpiry,
+        expires_at: editExpiry || undefined,
+      });
+      setEditingId(null);
+      load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : '更新失败');
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('确定删除此兑换码？')) return;
+    setError('');
+    try {
+      await deleteAdminCode(adminKey, id);
+      load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : '删除失败');
+    }
+  };
+
+  // ── Login form ──────────────────────────────────────────────────
+
+  if (!loggedIn) {
+    return (
+      <div style={{ maxWidth: 420, margin: '80px auto' }}>
+        <div style={cardStyle}>
+          <h2 style={{ fontSize: 18, fontWeight: 600, color: '#1a73e8', marginBottom: 20 }}>
+            管理后台
+          </h2>
+          {error && (
+            <div style={{ background: '#fce8e6', color: '#c5221f', padding: '10px 14px', borderRadius: 8, fontSize: 13, marginBottom: 14 }}>
+              {error}
+            </div>
+          )}
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#444' }}>
+              Admin Key
+            </label>
+            <input
+              type="password"
+              value={adminKey}
+              onChange={(e) => setAdminKey(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+              placeholder="输入管理员密钥"
+              style={inputStyle}
+            />
+          </div>
+          <button onClick={handleLogin} style={btnPrimary}>
+            登录
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Main admin panel ────────────────────────────────────────────
+
+  return (
+    <div style={{ maxWidth: 960, margin: '0 auto' }}>
+      <div style={cardStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 600, color: '#1a73e8', margin: 0 }}>兑换码管理</h2>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => { setShowCreate(true); setEditingId(null); setNewCode(''); setNewQuota('100'); setNewExpiry(''); }}
+              style={btnPrimary}
+            >
+              创建兑换码
+            </button>
+            <button onClick={handleLogout} style={{ ...btnPrimary, background: '#fff', color: '#666', border: '1px solid #dadce0' }}>
+              退出管理
+            </button>
+          </div>
+        </div>
+
+        {error && (
+          <div style={{ background: '#fce8e6', color: '#c5221f', padding: '10px 14px', borderRadius: 8, fontSize: 13, marginBottom: 14 }}>
+            {error}
+          </div>
+        )}
+
+        {/* Code table */}
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={thStyle}>兑换码</th>
+                <th style={thStyle}>用量</th>
+                <th style={thStyle}>状态</th>
+                <th style={thStyle}>创建时间</th>
+                <th style={thStyle}>过期时间</th>
+                <th style={{ ...thStyle, textAlign: 'center' }}>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {codes.length === 0 && (
+                <tr>
+                  <td colSpan={6} style={{ ...tdStyle, textAlign: 'center', color: '#999', padding: 24 }}>
+                    暂无兑换码
+                  </td>
+                </tr>
+              )}
+              {codes.map((item) => (
+                <tr key={item.id} style={{ background: item.is_active ? '#fff' : '#fafafa' }}>
+                  <td style={{ ...tdStyle, fontFamily: 'monospace', fontWeight: 600 }}>
+                    {item.code}
+                  </td>
+                  <td style={tdStyle}>
+                    {editingId === item.id ? (
+                      <input
+                        value={editQuota}
+                        onChange={(e) => setEditQuota(e.target.value)}
+                        style={{ ...inputStyle, width: 80, padding: '6px 8px', fontSize: 13 }}
+                        type="number"
+                      />
+                    ) : (
+                      <span>
+                        {item.used_quota} / {item.total_quota}
+                      </span>
+                    )}
+                  </td>
+                  <td style={tdStyle}>
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        padding: '2px 10px',
+                        borderRadius: 10,
+                        fontSize: 12,
+                        fontWeight: 500,
+                        background: item.is_active ? '#e6f4ea' : '#fce8e6',
+                        color: item.is_active ? '#137333' : '#c5221f',
+                        cursor: 'pointer',
+                      }}
+                      onClick={() => handleToggleActive(item)}
+                      title="点击切换状态"
+                    >
+                      {item.is_active ? '启用' : '禁用'}
+                    </span>
+                  </td>
+                  <td style={{ ...tdStyle, fontSize: 12, color: '#888' }}>
+                    {item.created_at?.replace('T', ' ').slice(0, 16) || '-'}
+                  </td>
+                  <td style={tdStyle}>
+                    {editingId === item.id ? (
+                      <input
+                        value={editExpiry}
+                        onChange={(e) => setEditExpiry(e.target.value)}
+                        type="datetime-local"
+                        style={{ ...inputStyle, width: 180, padding: '6px 8px', fontSize: 12 }}
+                      />
+                    ) : (
+                      <span style={{ fontSize: 12, color: item.expires_at ? '#888' : '#bbb' }}>
+                        {item.expires_at ? item.expires_at.replace('T', ' ').slice(0, 16) : '无'}
+                      </span>
+                    )}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>
+                    <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                      {editingId === item.id ? (
+                        <>
+                          <button onClick={handleSaveEdit} style={btnSmall}>保存</button>
+                          <button onClick={() => setEditingId(null)} style={{ ...btnSmall, background: '#f1f3f4', color: '#666' }}>
+                            取消
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button onClick={() => handleStartEdit(item)} style={btnSmall}>编辑</button>
+                          <button onClick={() => handleDelete(item.id)} style={btnDanger}>删除</button>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Create form */}
+        {showCreate && (
+          <div style={{ marginTop: 24, padding: '20px', background: '#f8f9ff', borderRadius: 10, border: '1px solid #e0e3f2' }}>
+            <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 14 }}>创建兑换码</h3>
+            <div style={{ display: 'flex', gap: 12, marginBottom: 14, flexWrap: 'wrap' as const }}>
+              <div style={{ flex: '1 1 200px' }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#444' }}>兑换码</label>
+                <input
+                  value={newCode}
+                  onChange={(e) => setNewCode(e.target.value)}
+                  placeholder="如 SUMMER2026"
+                  style={inputStyle}
+                />
+              </div>
+              <div style={{ flex: '0 0 120px' }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#444' }}>总次数</label>
+                <input
+                  value={newQuota}
+                  onChange={(e) => setNewQuota(e.target.value)}
+                  type="number"
+                  style={inputStyle}
+                />
+              </div>
+              <div style={{ flex: '1 1 200px' }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#444' }}>过期时间（可选）</label>
+                <input
+                  value={newExpiry}
+                  onChange={(e) => setNewExpiry(e.target.value)}
+                  type="datetime-local"
+                  style={inputStyle}
+                />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={handleCreate} style={btnPrimary}>创建</button>
+              <button onClick={() => setShowCreate(false)} style={{ ...btnPrimary, background: '#fff', color: '#666', border: '1px solid #dadce0' }}>
+                取消
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Stats summary */}
+      <div style={cardStyle}>
+        <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 14, color: '#333' }}>统计</h3>
+        <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' as const }}>
+          <StatCard label="总兑换码" value={codes.length} />
+          <StatCard label="启用中" value={codes.filter(c => c.is_active).length} />
+          <StatCard label="已禁用" value={codes.filter(c => !c.is_active).length} />
+          <StatCard label="总使用次数" value={codes.reduce((s, c) => s + c.used_quota, 0)} />
+          <StatCard label="总配额" value={codes.reduce((s, c) => s + c.total_quota, 0)} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div style={{
+      background: '#f8f9ff',
+      borderRadius: 8,
+      padding: '12px 20px',
+      minWidth: 100,
+      textAlign: 'center' as const,
+    }}>
+      <div style={{ fontSize: 22, fontWeight: 700, color: '#1a73e8' }}>{value}</div>
+      <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{label}</div>
+    </div>
+  );
+}

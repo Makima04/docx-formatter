@@ -146,3 +146,73 @@ export async function pollBatch(batchId: string): Promise<BatchStatus> {
 export function batchDownloadUrl(batchId: string): string {
   return `${BASE}/api/batch/${batchId}/download`;
 }
+
+// ── Admin ─────────────────────────────────────────────────────────
+
+export interface RedeemCodeItem {
+  id: number;
+  code: string;
+  total_quota: number;
+  used_quota: number;
+  is_active: number;
+  created_at: string;
+  expires_at: string | null;
+}
+
+function adminHeaders(adminKey: string): Record<string, string> {
+  return { 'Content-Type': 'application/json', 'X-Admin-Key': adminKey };
+}
+
+export async function listAdminCodes(adminKey: string): Promise<RedeemCodeItem[]> {
+  const res = await fetch(`${BASE}/api/redeem/admin/codes`, {
+    headers: adminHeaders(adminKey),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to fetch codes');
+  }
+  return res.json();
+}
+
+export async function createAdminCode(
+  adminKey: string,
+  data: { code: string; total_quota: number; expires_at?: string },
+): Promise<{ code: string }> {
+  const res = await fetch(`${BASE}/api/redeem/admin/codes`, {
+    method: 'POST',
+    headers: adminHeaders(adminKey),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to create code');
+  }
+  return res.json();
+}
+
+export async function updateAdminCode(
+  adminKey: string,
+  id: number,
+  data: { total_quota?: number; is_active?: boolean; expires_at?: string; clear_expires?: boolean },
+): Promise<void> {
+  const res = await fetch(`${BASE}/api/redeem/admin/codes/${id}`, {
+    method: 'PUT',
+    headers: adminHeaders(adminKey),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to update code');
+  }
+}
+
+export async function deleteAdminCode(adminKey: string, id: number): Promise<void> {
+  const res = await fetch(`${BASE}/api/redeem/admin/codes/${id}`, {
+    method: 'DELETE',
+    headers: adminHeaders(adminKey),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to delete code');
+  }
+}
