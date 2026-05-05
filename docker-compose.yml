@@ -1,0 +1,29 @@
+services:
+  docx-formatter:
+    build: .
+    container_name: docx-formatter
+    ports:
+      - "8000:8000"
+    environment:
+      - DOCFMT_HOST=0.0.0.0
+      - DOCFMT_PORT=8000
+      - DOCFMT_DATA_DIR=/data
+      - DOCFMT_MAX_WORKERS=4
+      - DOCFMT_MAX_UPLOAD_SIZE_MB=20
+      - DOCFMT_CORS_ORIGINS=*
+      # LLM config (optional)
+      # - DOCFMT_LLM_API_KEY=sk-xxx
+      # - DOCFMT_LLM_BASE_URL=https://api.openai.com/v1
+      # - DOCFMT_LLM_MODEL=gpt-4o-mini
+    volumes:
+      - uploads:/app/uploads
+      - data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    restart: unless-stopped
+
+volumes:
+  uploads:
+  data:

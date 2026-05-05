@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Docx Formatter - 文档自动排版</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            background: #f5f7fa;
+            color: #333;
+            min-height: 100vh;
+        }
+        .header {
+            background: linear-gradient(135deg, #1a73e8, #0d47a1);
+            color: #fff;
+            padding: 24px 0;
+            text-align: center;
+        }
+        .header h1 { font-size: 28px; font-weight: 600; }
+        .header p { font-size: 14px; opacity: 0.85; margin-top: 6px; }
+        .container {
+            max-width: 720px;
+            margin: 32px auto;
+            padding: 0 16px;
+        }
+        .card {
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            padding: 28px 32px;
+            margin-bottom: 24px;
+        }
+        .card h2 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 18px;
+            color: #1a73e8;
+            border-bottom: 2px solid #e8eaed;
+            padding-bottom: 10px;
+        }
+
+        /* Upload area */
+        .upload-zone {
+            border: 2px dashed #c4c9d4;
+            border-radius: 10px;
+            padding: 36px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: #fafbfc;
+        }
+        .upload-zone:hover, .upload-zone.dragover {
+            border-color: #1a73e8;
+            background: #e8f0fe;
+        }
+        .upload-zone .icon { font-size: 40px; margin-bottom: 8px; }
+        .upload-zone p { font-size: 14px; color: #666; }
+        .upload-zone .filename {
+            margin-top: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            color: #1a73e8;
+        }
+        #fileInput, #templateFileInput { display: none; }
+
+        /* Form fields */
+        .form-group {
+            margin-bottom: 18px;
+        }
+        .form-group label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            color: #444;
+            margin-bottom: 6px;
+        }
+        .form-group select,
+        .form-group input[type="number"],
+        .form-group input[type="text"],
+        .form-group textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #dadce0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+            background: #fff;
+        }
+        .form-group select:focus,
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #1a73e8;
+            box-shadow: 0 0 0 2px rgba(26,115,232,0.15);
+        }
+        .form-group textarea { resize: vertical; min-height: 80px; }
+        .form-row {
+            display: flex;
+            gap: 16px;
+        }
+        .form-row .form-group { flex: 1; }
+        .form-group .hint {
+            font-size: 12px;
+            color: #888;
+            margin-top: 4px;
+        }
+
+        /* Page number section */
+        .page-num-section {
+            background: #f8f9ff;
+            border: 1px solid #e0e3f2;
+            border-radius: 10px;
+            padding: 18px 20px;
+            margin-bottom: 18px;
+        }
+        .page-num-section h3 {
+            font-size: 15px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 14px;
+        }
+        .page-num-section .form-row {
+            margin-bottom: 0;
+        }
+
+        /* Template section */
+        .template-toggle {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+        .template-toggle button {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid #dadce0;
+            background: #fff;
+            border-radius: 8px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .template-toggle button.active {
+            background: #1a73e8;
+            color: #fff;
+            border-color: #1a73e8;
+        }
+        .template-section { display: none; }
+        .template-section.active { display: block; }
+
+        /* Submit button */
+        .btn-submit {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #1a73e8, #0d47a1);
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        .btn-submit:hover { opacity: 0.9; }
+        .btn-submit:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Progress */
+        .progress-area { display: none; }
+        .progress-area.active { display: block; }
+        .progress-bar-outer {
+            width: 100%;
+            height: 8px;
+            background: #e8eaed;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 12px 0;
+        }
+        .progress-bar-inner {
+            height: 100%;
+            background: linear-gradient(90deg, #1a73e8, #34a853);
+            border-radius: 4px;
+            transition: width 0.4s ease;
+            width: 0%;
+        }
+        .progress-message {
+            font-size: 14px;
+            color: #555;
+            text-align: center;
+        }
+
+        /* Classification preview */
+        .classification-preview {
+            display: none;
+            max-height: 320px;
+            overflow-y: auto;
+            border: 1px solid #e8eaed;
+            border-radius: 8px;
+            margin-top: 16px;
+        }
+        .classification-preview.active { display: block; }
+        .classification-preview table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .classification-preview th {
+            background: #f1f3f4;
+            padding: 8px 10px;
+            text-align: left;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+        }
+        .classification-preview td {
+            padding: 6px 10px;
+            border-bottom: 1px solid #f1f3f4;
+        }
+        .classification-preview tr:hover { background: #f8f9ff; }
+        .type-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .type-heading1 { background: #fce8e6; color: #c5221f; }
+        .type-heading2 { background: #fef7e0; color: #e37400; }
+        .type-heading3 { background: #e6f4ea; color: #137333; }
+        .type-body { background: #f1f3f4; color: #555; }
+        .type-caption_figure, .type-caption_table { background: #e8f0fe; color: #1a73e8; }
+        .type-reference { background: #f3e8fd; color: #7627bb; }
+        .type-abstract, .type-keywords { background: #e0f7fa; color: #00838f; }
+
+        /* Result */
+        .result-area { display: none; text-align: center; padding: 20px 0; }
+        .result-area.active { display: block; }
+        .result-area .success-icon { font-size: 48px; margin-bottom: 10px; }
+        .result-area .btn-download {
+            display: inline-block;
+            margin-top: 14px;
+            padding: 12px 32px;
+            background: #34a853;
+            color: #fff;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 15px;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+        .result-area .btn-download:hover { background: #2d8e47; }
+        .result-area .btn-restart {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 10px 24px;
+            background: transparent;
+            color: #1a73e8;
+            border: 1px solid #1a73e8;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .result-area .btn-restart:hover { background: #e8f0fe; }
+
+        /* Error */
+        .error-area {
+            display: none;
+            background: #fce8e6;
+            color: #c5221f;
+            padding: 14px 18px;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-top: 14px;
+        }
+        .error-area.active { display: block; }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 20px;
+            font-size: 12px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Docx Formatter</h1>
+        <p>自动识别文档结构 · 按模板精准排版 · 支持页码配置</p>
+    </div>
+
+    <div class="container">
+        <!-- Upload -->
+        <div class="card">
+            <h2>1. 上传文档</h2>
+            <div class="upload-zone" id="uploadZone">
+                <div class="icon">&#128196;</div>
+                <p>点击或拖拽上传 .docx 文件</p>
+                <div class="filename" id="fileName"></div>
+            </div>
+            <input type="file" id="fileInput" accept=".docx">
+        </div>
+
+        <!-- Template -->
+        <div class="card">
+            <h2>2. 选择模板</h2>
+            <div class="template-toggle">
+                <button class="active" data-mode="builtin">内置模板</button>
+                <button data-mode="upload">上传模板文件</button>
+                <button data-mode="nl">自然语言描述</button>
+            </div>
+
+            <div class="template-section active" id="tplBuiltin">
+                <div class="form-group">
+                    <label>模板</label>
+                    <select id="templateName">
+                        <option value="">默认（学术论文格式）</option>
+                        <option value="gb7714">GB/T 7714 参考文献格式</option>
+                        <option value="thesis_cn">中国学位论文通用格式</option>
+                        <option value="ieee">IEEE Conference Paper Format</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="template-section" id="tplUpload">
+                <div class="upload-zone" id="templateUploadZone" style="padding: 24px;">
+                    <div class="icon">&#128203;</div>
+                    <p>上传模板 .docx 文件（将提取页面设置）</p>
+                    <div class="filename" id="templateFileName"></div>
+                </div>
+                <input type="file" id="templateFileInput" accept=".docx">
+            </div>
+
+            <div class="template-section" id="tplNL">
+                <div class="form-group">
+                    <label>描述你想要的排版格式</label>
+                    <textarea id="templateDescription" placeholder="例如：A4纸，上下边距2.54cm，左右3.17cm，正文宋体小四号，标题黑体三号居中，行距1.5倍，参考文献五号宋体悬挂缩进..."></textarea>
+                    <div class="hint">需要配置 LLM API 才能使用此功能</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Page Number -->
+        <div class="card">
+            <h2>3. 页码设置</h2>
+            <div class="page-num-section">
+                <h3>&#128196; 页码配置</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>页码格式</label>
+                        <select id="pageNumberFormat">
+                            <option value="decimal">阿拉伯数字（1, 2, 3...）</option>
+                            <option value="upperRoman">大写罗马（I, II, III...）</option>
+                            <option value="lowerRoman">小写罗马（i, ii, iii...）</option>
+                        </select>
+                        <div class="hint">选择页码的数字显示格式</div>
+                    </div>
+                    <div class="form-group">
+                        <label>起始页码</label>
+                        <input type="number" id="pageNumberStart" value="1" min="0" max="9999">
+                        <div class="hint">设置首页页码数字（默认为 1）</div>
+                    </div>
+                </div>
+            </div>
+            <p style="font-size: 13px; color: #888;">
+                页码将显示在页面底端居中位置。罗马数字格式常用于论文的前置部分（摘要、目录等）。
+            </p>
+        </div>
+
+        <!-- Submit -->
+        <div class="card">
+            <button class="btn-submit" id="btnSubmit" disabled>开始排版</button>
+
+            <div class="progress-area" id="progressArea">
+                <div class="progress-bar-outer">
+                    <div class="progress-bar-inner" id="progressBar"></div>
+                </div>
+                <div class="progress-message" id="progressMessage">准备中...</div>
+            </div>
+
+            <div class="classification-preview" id="classificationPreview">
+                <table>
+                    <thead>
+                        <tr><th>#</th><th>类型</th><th>置信度</th><th>文本预览</th></tr>
+                    </thead>
+                    <tbody id="classificationBody"></tbody>
+                </table>
+            </div>
+
+            <div class="error-area" id="errorArea"></div>
+
+            <div class="result-area" id="resultArea">
+                <div class="success-icon">&#9989;</div>
+                <p style="font-size: 16px; font-weight: 500;">排版完成！</p>
+                <a class="btn-download" id="btnDownload" href="#">下载排版文档</a>
+                <br>
+                <button class="btn-restart" id="btnRestart">继续排版下一个文档</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">Docx Formatter &mdash; Rust + Python 混合架构文档排版引擎</div>
+
+    <script>
+    (function() {
+        const $ = (sel) => document.querySelector(sel);
+        const fileInput = $('#fileInput');
+        const uploadZone = $('#uploadZone');
+        const fileName = $('#fileName');
+        const templateFileInput = $('#templateFileInput');
+        const templateUploadZone = $('#templateUploadZone');
+        const templateFileName = $('#templateFileName');
+        const btnSubmit = $('#btnSubmit');
+        const progressArea = $('#progressArea');
+        const progressBar = $('#progressBar');
+        const progressMessage = $('#progressMessage');
+        const classificationPreview = $('#classificationPreview');
+        const classificationBody = $('#classificationBody');
+        const errorArea = $('#errorArea');
+        const resultArea = $('#resultArea');
+        const btnDownload = $('#btnDownload');
+        const btnRestart = $('#btnRestart');
+
+        let selectedFile = null;
+        let selectedTemplateFile = null;
+        let currentTaskId = null;
+        let pollTimer = null;
+
+        // --- Upload source file ---
+        uploadZone.addEventListener('click', () => fileInput.click());
+        uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+        uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.classList.remove('dragover');
+            if (e.dataTransfer.files.length) {
+                fileInput.files = e.dataTransfer.files;
+                handleFileSelect(e.dataTransfer.files[0]);
+            }
+        });
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length) handleFileSelect(fileInput.files[0]);
+        });
+
+        function handleFileSelect(file) {
+            if (!file.name.toLowerCase().endsWith('.docx')) {
+                showError('只支持 .docx 格式文件');
+                return;
+            }
+            selectedFile = file;
+            fileName.textContent = file.name;
+            btnSubmit.disabled = false;
+            hideError();
+        }
+
+        // --- Upload template file ---
+        templateUploadZone.addEventListener('click', () => templateFileInput.click());
+        templateFileInput.addEventListener('change', () => {
+            if (templateFileInput.files.length) {
+                selectedTemplateFile = templateFileInput.files[0];
+                templateFileName.textContent = selectedTemplateFile.name;
+            }
+        });
+
+        // --- Template toggle ---
+        document.querySelectorAll('.template-toggle button').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.template-toggle button').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                document.querySelectorAll('.template-section').forEach(s => s.classList.remove('active'));
+                const mode = btn.dataset.mode;
+                if (mode === 'builtin') $('#tplBuiltin').classList.add('active');
+                else if (mode === 'upload') $('#tplUpload').classList.add('active');
+                else if (mode === 'nl') $('#tplNL').classList.add('active');
+            });
+        });
+
+        // --- Submit ---
+        btnSubmit.addEventListener('click', async () => {
+            if (!selectedFile) return;
+            hideError();
+            btnSubmit.disabled = true;
+            progressArea.classList.add('active');
+            classificationPreview.classList.remove('active');
+            resultArea.classList.remove('active');
+            progressBar.style.width = '0%';
+            progressMessage.textContent = '正在上传文件...';
+
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+
+            const activeMode = document.querySelector('.template-toggle button.active').dataset.mode;
+            if (activeMode === 'builtin') {
+                const tplName = $('#templateName').value;
+                if (tplName) formData.append('template_name', tplName);
+            } else if (activeMode === 'upload' && selectedTemplateFile) {
+                formData.append('template_file', selectedTemplateFile);
+            } else if (activeMode === 'nl') {
+                const desc = $('#templateDescription').value.trim();
+                if (desc) formData.append('template_description', desc);
+            }
+
+            // Page number settings
+            formData.append('page_number_format', $('#pageNumberFormat').value);
+            formData.append('page_number_start', parseInt($('#pageNumberStart').value) || 1);
+
+            try {
+                const resp = await fetch('/api/format', { method: 'POST', body: formData });
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    throw new Error(err.detail || '上传失败');
+                }
+                const data = await resp.json();
+                currentTaskId = data.task_id;
+                startPolling(currentTaskId);
+            } catch (e) {
+                showError(e.message);
+                btnSubmit.disabled = false;
+                progressArea.classList.remove('active');
+            }
+        });
+
+        // --- Polling ---
+        function startPolling(taskId) {
+            if (pollTimer) clearInterval(pollTimer);
+            pollTimer = setInterval(() => pollTask(taskId), 1200);
+            pollTask(taskId);
+        }
+
+        async function pollTask(taskId) {
+            try {
+                const resp = await fetch(`/api/tasks/${taskId}`);
+                if (!resp.ok) throw new Error('查询任务状态失败');
+                const task = await resp.json();
+
+                progressBar.style.width = task.progress + '%';
+                progressMessage.textContent = task.message || '处理中...';
+
+                // Show classification preview if available
+                if (task.classification_result && task.classification_result.length > 0) {
+                    showClassification(task.classification_result);
+                }
+
+                if (task.status === 'completed') {
+                    clearInterval(pollTimer);
+                    pollTimer = null;
+                    progressArea.classList.remove('active');
+                    resultArea.classList.add('active');
+                    btnDownload.href = task.download_url || `/download/${taskId}`;
+                    btnDownload.download = `formatted_${taskId}.docx`;
+                    btnSubmit.disabled = false;
+                } else if (task.status === 'failed') {
+                    clearInterval(pollTimer);
+                    pollTimer = null;
+                    progressArea.classList.remove('active');
+                    showError(task.message || '处理失败');
+                    btnSubmit.disabled = false;
+                }
+            } catch (e) {
+                clearInterval(pollTimer);
+                pollTimer = null;
+                showError(e.message);
+                progressArea.classList.remove('active');
+                btnSubmit.disabled = false;
+            }
+        }
+
+        // --- Classification preview ---
+        function showClassification(items) {
+            classificationBody.innerHTML = '';
+            items.forEach(item => {
+                const tr = document.createElement('tr');
+                const typeClass = 'type-' + item.type;
+                tr.innerHTML = `
+                    <td>${item.index}</td>
+                    <td><span class="type-badge ${typeClass}">${item.type}</span></td>
+                    <td>${(item.confidence * 100).toFixed(0)}%</td>
+                    <td title="${escapeHtml(item.text)}">${escapeHtml(item.text)}</td>
+                `;
+                classificationBody.appendChild(tr);
+            });
+            classificationPreview.classList.add('active');
+        }
+
+        // --- Restart ---
+        btnRestart.addEventListener('click', () => {
+            resultArea.classList.remove('active');
+            classificationPreview.classList.remove('active');
+            selectedFile = null;
+            selectedTemplateFile = null;
+            currentTaskId = null;
+            fileName.textContent = '';
+            templateFileName.textContent = '';
+            fileInput.value = '';
+            templateFileInput.value = '';
+            btnSubmit.disabled = true;
+            progressBar.style.width = '0%';
+        });
+
+        // --- Helpers ---
+        function showError(msg) {
+            errorArea.textContent = msg;
+            errorArea.classList.add('active');
+        }
+        function hideError() {
+            errorArea.classList.remove('active');
+        }
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+    })();
+    </script>
+</body>
+</html>
