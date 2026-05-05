@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { pollTask } from '../api/client';
-import type { TaskInfo, ClassificationItem } from '../types';
+import type { TaskInfo } from '../types';
 
 export function useTaskPolling() {
   const [task, setTask] = useState<TaskInfo | null>(null);

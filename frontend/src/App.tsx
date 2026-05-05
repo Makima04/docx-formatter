@@ -10,7 +10,7 @@ import { useAuth } from './hooks/useAuth';
 import { checkCode } from './api/client';
 
 export default function App() {
-  const { code, setCode, valid, remaining, checking, verify } = useAuth();
+  const { code, setCode, valid, remaining, checking } = useAuth();
   const [loginError, setLoginError] = React.useState('');
 
   const handleLogin = async (inputCode: string) => {

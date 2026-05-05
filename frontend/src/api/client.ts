@@ -17,7 +17,7 @@ export async function checkCode(code: string): Promise<RedeemCheck> {
     body: JSON.stringify({ code }),
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
+    await res.json().catch(() => ({}));
     return { valid: false, remaining: 0 };
   }
   return res.json();

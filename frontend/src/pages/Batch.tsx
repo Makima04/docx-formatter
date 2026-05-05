@@ -58,8 +58,6 @@ export default function Batch({ code, onQuotaChange }: Props) {
     setError('');
   };
 
-  const isProcessing = batchId && batch && !['completed', 'partial', 'failed'].includes(batch.status);
-
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
       <div style={cardStyle}>

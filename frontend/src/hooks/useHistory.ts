@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import type { HistoryItem } from '../types';
 
 const STORAGE_KEY = 'docfmt_history';
