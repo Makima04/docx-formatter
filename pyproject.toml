@@ -10,6 +10,5 @@ requires-python = ">=3.11"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
-python-source = "python"
 module-name = "docx_fmt_core"
 manifest-path = "engine/Cargo.toml"
