@@ -24,6 +24,7 @@ RUN pip3 install --break-system-packages maturin[patchelf]
 
 WORKDIR /build
 COPY pyproject.toml .
+RUN mkdir -p python
 COPY engine/Cargo.toml engine/Cargo.lock ./engine/
 
 # Pre-fetch Rust crates so downloads are cached in a layer
