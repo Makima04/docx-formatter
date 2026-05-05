@@ -39,7 +39,7 @@ pub fn parse_docx(path: &str) -> Result<ExtractedDocument, String> {
     let media_types = read_media_types(&mut archive);
 
     let mut reader = Reader::from_reader(Cursor::new(&xml_bytes));
-    reader.trim_text(true);
+    reader.config_mut().trim_text(true);
 
     let mut paragraphs: Vec<ExtractedParagraph> = Vec::new();
     let mut tables: Vec<ExtractedTable> = Vec::new();
@@ -231,9 +231,9 @@ fn read_image_rels(archive: &mut ZipArchive<std::fs::File>) -> Vec<(String, Stri
             Ok(Event::Empty(ref e)) | Ok(Event::Start(ref e)) => {
                 let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
                 if tag.ends_with("Relationship") || tag == "Relationship" {
-                    let id = get_attr(e, b"Id").unwrap_or("").to_string();
-                    let target = get_attr(e, b"Target").unwrap_or("").to_string();
-                    let rel_type = get_attr(e, b"Type").unwrap_or("");
+                    let id = get_attr(e, b"Id").unwrap_or_default();
+                    let target = get_attr(e, b"Target").unwrap_or_default();
+                    let rel_type = get_attr(e, b"Type").unwrap_or_default();
                     if rel_type.contains("image") {
                         rels.push((id, target));
                     }
@@ -260,15 +260,15 @@ fn read_media_types(archive: &mut ZipArchive<std::fs::File>) -> HashMap<String, 
             Ok(Event::Empty(ref e)) => {
                 let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
                 if tag == "Override" {
-                    let part = get_attr(e, b"PartName").unwrap_or("").to_string();
-                    let ct = get_attr(e, b"ContentType").unwrap_or("").to_string();
+                    let part = get_attr(e, b"PartName").unwrap_or_default();
+                    let ct = get_attr(e, b"ContentType").unwrap_or_default();
                     if part.contains("media/") {
                         let name = part.trim_start_matches('/').to_string();
                         types.insert(name, ct);
                     }
                 } else if tag == "Default" {
-                    let ext = get_attr(e, b"Extension").unwrap_or("").to_string();
-                    let ct = get_attr(e, b"ContentType").unwrap_or("").to_string();
+                    let ext = get_attr(e, b"Extension").unwrap_or_default();
+                    let ct = get_attr(e, b"ContentType").unwrap_or_default();
                     types.insert(ext, ct);
                 }
             }

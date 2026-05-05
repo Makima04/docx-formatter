@@ -3,7 +3,7 @@
 /// Takes a classified ExtractedDocument + TemplateConfig, generates all XML
 /// in Rust, and writes the zip directly. No intermediate files, constant memory.
 use std::io::Write;
-use zip::write::SimpleFileOptions;
+use zip::write::FileOptions;
 use zip::CompressionMethod;
 
 use crate::models::*;
@@ -17,7 +17,7 @@ pub fn assemble_docx(
     let file = std::fs::File::create(output_path)
         .map_err(|e| format!("Cannot create output file: {e}"))?;
     let mut zip = zip::ZipWriter::new(file);
-    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+    let options = FileOptions::default().compression_method(CompressionMethod::Stored);
 
     zip.start_file("[Content_Types].xml", options).map_err(|e| e.to_string())?;
     zip.write_all(xml_utils::content_types_xml().as_bytes()).map_err(|e| e.to_string())?;

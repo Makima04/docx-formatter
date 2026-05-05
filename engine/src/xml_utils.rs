@@ -109,7 +109,7 @@ pub fn app_xml() -> String {
 }
 
 /// Build the complete word/document.xml
-pub fn document_xml(page: &PageStyle, paragraphs_xml: &str, tables_xml: &str, section_xml: &str) -> String {
+pub fn document_xml(_page: &PageStyle, paragraphs_xml: &str, tables_xml: &str, section_xml: &str) -> String {
     format!(
         r#"{XML_HEADER}
 <w:document xmlns:w="{W_NS}" xmlns:r="{R_NS}" xmlns:wp="{WP_NS}">
