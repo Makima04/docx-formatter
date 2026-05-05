@@ -13,6 +13,10 @@ command -v docker-compose >/dev/null 2>&1 || { echo "❌ Docker Compose 未安�
 echo "✅ Docker 检查通过"
 echo ""
 
+# 启用 BuildKit 以支持缓存挂载，加速重复构建
+export DOCKER_BUILDKIT=1
+export COMPOSE_DOCKER_CLI_BUILD=1
+
 # 构建并启动
 echo "🔨 开始构建镜像并启动服务..."
 docker compose up --build -d

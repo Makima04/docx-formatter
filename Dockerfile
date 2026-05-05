@@ -1,11 +1,18 @@
+# syntax=docker/dockerfile:1
 # ==============================
 # Stage 0: Build frontend
 # ==============================
 FROM node:20-alpine AS frontend-builder
 
-COPY frontend/ /build/
 WORKDIR /build
-RUN npm ci && npm run build
+# Copy manifests first so npm ci is cached unless deps change
+COPY frontend/package.json frontend/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
+
+# Then copy source and build
+COPY frontend/ ./
+RUN npm run build
 
 # ==============================
 # Stage 1: Build Rust extension
@@ -16,10 +23,17 @@ RUN apt-get update && apt-get install -y python3-dev python3-pip && rm -rf /var/
 RUN pip3 install --break-system-packages maturin[patchelf]
 
 WORKDIR /build
-COPY engine/ engine/
 COPY pyproject.toml .
+COPY engine/Cargo.toml engine/Cargo.lock ./engine/
 
-RUN maturin build --release --out /wheels
+# Pre-fetch Rust crates so downloads are cached in a layer
+RUN cargo fetch --manifest-path engine/Cargo.toml
+
+# Copy real source and build — registry + target are cached via BuildKit mounts
+COPY engine/ ./engine/
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/build/engine/target \
+    maturin build --release --out /wheels
 
 # ==============================
 # Stage 2: Python runtime
@@ -28,13 +42,16 @@ FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
+# Install Python deps first (cached unless requirements.txt changes)
+COPY python/requirements.txt python/
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir -r python/requirements.txt
+
 COPY python/ python/
 COPY --from=rust-builder /wheels /wheels
 COPY --from=frontend-builder /build/dist/ /app/python/static/
 
-RUN pip install --no-cache-dir /wheels/*.whl && \
-    pip install --no-cache-dir -r python/requirements.txt && \
-    rm -rf /wheels
+RUN pip install --no-cache-dir /wheels/*.whl && rm -rf /wheels
 
 ENV PYTHONPATH=/app/python
 ENV DOCFMT_HOST=0.0.0.0
