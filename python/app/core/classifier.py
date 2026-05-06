@@ -39,6 +39,17 @@ CAPTION_FIG_RE = re.compile(r'^图\s*\d+[-.]\d+')
 CAPTION_TAB_RE = re.compile(r'^表\s*\d+[-.]\d+')
 REF_RE = re.compile(r'^\[\d+\]')
 
+# Phrases that indicate body text — these should never be classified as headings
+# even if bold/large/centered. They are transitional or explanatory sentence starts.
+BODY_START_PHRASES = [
+    '本文', '为了', '为便于', '为提升', '为反映', '综合', '结合', '因此',
+    '此外', '尽管', '后续', '这种', '通过', '非功能', '但也', '若需要',
+    '软件开发', '移植层主要', '调度算法可概括', '系统上电',
+    '考虑到', '基于以上', '该方法', '该机制', '该结构', '从工程',
+    '与桌面', '在同步', '此外，', '在实际', '需要说明', '需要指出',
+    '从结果', '与FreeRTOS', '由此可见', '在论文', '该策略',
+]
+
 
 def _match_pattern(text: str, patterns: list) -> bool:
     return any(p.match(text) for p in patterns)
@@ -70,18 +81,39 @@ def classify_one(text: str, font_size: Optional[float], bold: bool,
     if _match_pattern(stripped, HEADING3_PATS):
         return "heading3", 0.85
 
+    # Check if text starts with a known body paragraph phrase
+    for phrase in BODY_START_PHRASES:
+        if stripped.startswith(phrase):
+            return "body", 0.65
+
     font_ratio = (font_size / body_font_size) if font_size and body_font_size else 1.0
     is_large = font_ratio >= 1.1
     is_short = char_count < 60
+    is_very_short = char_count < 30
     is_centered = alignment == "center"
 
     score = 0.0
     if is_large: score += 0.3
-    if bold: score += 0.25
+    if bold: score += 0.2
     if is_centered: score += 0.2
     if is_short: score += 0.15
+    if is_very_short: score += 0.05
 
-    if score >= 0.5:
+    # Long paragraphs need more evidence to be headings
+    # A 200+ char "bold large" paragraph is almost certainly body text
+    threshold = 0.5
+    if char_count >= 200:
+        threshold = 0.75
+    elif char_count >= 100:
+        threshold = 0.65
+    elif char_count >= 60:
+        threshold = 0.60
+    else:
+        # Short paragraph: need more evidence if it starts with lowercase or common body words
+        # Bold + large + centered = 0.7 is still over 0.55, so raise to 0.65
+        threshold = 0.65
+
+    if score >= threshold:
         if font_ratio >= 1.3:
             return "heading1", min(score, 0.90)
         elif font_ratio >= 1.15:
@@ -134,6 +166,43 @@ def parse_llm_response(response: str) -> list[dict]:
         if json_str.startswith("```"):
             json_str = re.sub(r'^```(?:json)?\s*', '', json_str)
             json_str = re.sub(r'\s*```$', '', json_str)
+        # Some LLMs return JSON mixed with natural language; extract the JSON part
+        if not json_str.startswith('[') and not json_str.startswith('{'):
+            bracket = json_str.find('[')
+            brace = json_str.find('{')
+            if bracket >= 0 and (brace < 0 or bracket < brace):
+                json_str = json_str[bracket:]
+            elif brace >= 0:
+                json_str = json_str[brace:]
+        # Also handle trailing non-JSON text after a valid JSON array/object
+        for end_char, start_char in [('[', ']'), ('{', '}')]:
+            start = json_str.find(end_char)
+            if start < 0:
+                continue
+            depth = 0
+            in_string = False
+            escape_next = False
+            for i in range(start, len(json_str)):
+                c = json_str[i]
+                if escape_next:
+                    escape_next = False
+                    continue
+                if c == '\\' and in_string:
+                    escape_next = True
+                    continue
+                if c == '"' and not escape_next:
+                    in_string = not in_string
+                    continue
+                if in_string:
+                    continue
+                if c == end_char:
+                    depth += 1
+                elif c == start_char:
+                    depth -= 1
+                    if depth == 0:
+                        json_str = json_str[start:i + 1]
+                        break
+            break
         results = json.loads(json_str)
         valid_types = {"heading1","heading2","heading3","body","body_indent",
                        "caption_figure","caption_table","reference","abstract",

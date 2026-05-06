@@ -176,8 +176,8 @@ export async function listAdminCodes(adminKey: string): Promise<RedeemCodeItem[]
 
 export async function createAdminCode(
   adminKey: string,
-  data: { code: string; total_quota: number; expires_at?: string },
-): Promise<{ code: string }> {
+  data: { code?: string; total_quota: number; expires_at?: string; prefix?: string; count?: number },
+): Promise<{ code?: string; codes?: string[] }> {
   const res = await fetch(`${BASE}/api/redeem/admin/codes`, {
     method: 'POST',
     headers: adminHeaders(adminKey),
@@ -215,4 +215,70 @@ export async function deleteAdminCode(adminKey: string, id: number): Promise<voi
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || 'Failed to delete code');
   }
+}
+
+// ── Admin Settings ─────────────────────────────────────────────────
+
+export interface LLMConfig {
+  api_key: string;
+  base_url: string;
+  model: string;
+}
+
+export async function getLLMConfig(adminKey: string): Promise<LLMConfig> {
+  const res = await fetch(`${BASE}/api/admin/settings/llm`, {
+    headers: adminHeaders(adminKey),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to get LLM config');
+  }
+  return res.json();
+}
+
+export async function updateLLMConfig(
+  adminKey: string,
+  data: { api_key?: string; base_url?: string; model?: string },
+): Promise<void> {
+  const res = await fetch(`${BASE}/api/admin/settings/llm`, {
+    method: 'PUT',
+    headers: adminHeaders(adminKey),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to update LLM config');
+  }
+}
+
+export async function listLLMModels(adminKey: string, params?: { api_key?: string; base_url?: string }): Promise<string[]> {
+  const qs = new URLSearchParams();
+  if (params?.api_key) qs.set('api_key', params.api_key);
+  if (params?.base_url) qs.set('base_url', params.base_url);
+  const query = qs.toString();
+  const res = await fetch(`${BASE}/api/admin/settings/llm/models${query ? '?' + query : ''}`, {
+    headers: adminHeaders(adminKey),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to fetch models');
+  }
+  const data = await res.json();
+  return data.models;
+}
+
+export async function testLLMConnection(
+  adminKey: string,
+  data: { api_key?: string; base_url?: string; model?: string },
+): Promise<{ ok: boolean; message: string; model_count?: number; model_found?: boolean | null }> {
+  const res = await fetch(`${BASE}/api/admin/settings/llm/test`, {
+    method: 'POST',
+    headers: adminHeaders(adminKey),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    return { ok: false, message: err.detail || 'Connection test failed' };
+  }
+  return res.json();
 }

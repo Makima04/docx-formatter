@@ -2,12 +2,30 @@
 
 from __future__ import annotations
 import logging
+import secrets
+import string
 from typing import Optional
 from datetime import datetime
 
 from app.db import get_db
 
 logger = logging.getLogger(__name__)
+
+_CODE_ALPHABET = string.ascii_uppercase + string.digits  # e.g. A-Z, 0-9
+
+
+def generate_unique_code(length: int = 12, prefix: str = "") -> str:
+    """Generate a random redeem code guaranteed to be unique in DB."""
+    for _ in range(100):
+        raw = ''.join(secrets.choice(_CODE_ALPHABET) for _ in range(length))
+        code = f"{prefix}{raw}" if prefix else raw
+        with get_db() as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM redeem_codes WHERE code = ?", (code,)
+            ).fetchone()
+        if not exists:
+            return code
+    raise RuntimeError("Failed to generate unique code after 100 attempts")
 
 
 def validate_code(code: str) -> dict:

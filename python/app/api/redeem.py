@@ -1,24 +1,14 @@
 """Redeem code API routes."""
 
 from __future__ import annotations
-from fastapi import APIRouter, HTTPException, Header, Depends
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 
 from app.core import redeem
-from app.config import settings
+from app.api.admin import verify_admin_key
 
 router = APIRouter(prefix="/api/redeem", tags=["redeem"])
-
-
-# ── Admin auth dependency ─────────────────────────────────────────────
-
-async def verify_admin_key(x_admin_key: str = Header(..., alias="X-Admin-Key")):
-    """Verify the admin API key. Required for all /admin endpoints."""
-    if not settings.admin_api_key:
-        raise HTTPException(503, detail="Admin API key not configured on server")
-    if x_admin_key != settings.admin_api_key:
-        raise HTTPException(403, detail="Invalid admin key")
 
 
 # ── Request models ────────────────────────────────────────────────────
@@ -28,9 +18,11 @@ class CheckRequest(BaseModel):
 
 
 class CreateCodeRequest(BaseModel):
-    code: str
+    code: Optional[str] = None
     total_quota: int
     expires_at: Optional[str] = None
+    prefix: Optional[str] = None
+    count: int = 1
 
 
 class UpdateCodeRequest(BaseModel):
@@ -61,10 +53,27 @@ async def list_codes(_: None = Depends(verify_admin_key)):
 
 @router.post("/admin/codes")
 async def create_code(req: CreateCodeRequest, _: None = Depends(verify_admin_key)):
-    """Create a new redeem code."""
+    """Create new redeem code(s).
+
+    - If ``code`` is provided, creates a single code with that exact value.
+    - If ``code`` is omitted, auto-generates ``count`` unique random codes
+      (optionally prefixed with ``prefix``).
+    """
     if req.total_quota <= 0:
         raise HTTPException(400, "total_quota must be positive")
-    return redeem.create_code(req.code, req.total_quota, req.expires_at)
+
+    count = max(req.count, 1)
+
+    if req.code:
+        return redeem.create_code(req.code, req.total_quota, req.expires_at)
+
+    created = []
+    for _ in range(count):
+        code = redeem.generate_unique_code(prefix=req.prefix or "")
+        redeem.create_code(code, req.total_quota, req.expires_at)
+        created.append(code)
+
+    return {"codes": created}
 
 
 @router.put("/admin/codes/{code_id}")

@@ -4,6 +4,10 @@ import {
   createAdminCode,
   updateAdminCode,
   deleteAdminCode,
+  getLLMConfig,
+  updateLLMConfig,
+  listLLMModels,
+  testLLMConnection,
   type RedeemCodeItem,
 } from '../api/client';
 
@@ -86,11 +90,26 @@ export default function Admin() {
   const [newCode, setNewCode] = useState('');
   const [newQuota, setNewQuota] = useState('100');
   const [newExpiry, setNewExpiry] = useState('');
+  const [autoGenerate, setAutoGenerate] = useState(true);
+  const [newCount, setNewCount] = useState('1');
+  const [newPrefix, setNewPrefix] = useState('');
+  const [createdCodes, setCreatedCodes] = useState<string[]>([]);
 
   // Edit state
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editQuota, setEditQuota] = useState('');
   const [editExpiry, setEditExpiry] = useState('');
+
+  // LLM settings state
+  const [llmApiKey, setLlmApiKey] = useState('');
+  const [llmBaseUrl, setLlmBaseUrl] = useState('');
+  const [llmModel, setLlmModel] = useState('');
+  const [llmModels, setLlmModels] = useState<string[]>([]);
+  const [llmLoading, setLlmLoading] = useState(false);
+  const [llmSaving, setLlmSaving] = useState(false);
+  const [llmTesting, setLlmTesting] = useState(false);
+  const [llmMsg, setLlmMsg] = useState('');
+  const [llmMsgType, setLlmMsgType] = useState<'ok' | 'err' | ''>('');
 
   // Try restoring from localStorage
   useEffect(() => {
@@ -120,6 +139,17 @@ export default function Admin() {
     if (loggedIn) load();
   }, [loggedIn, load]);
 
+  // Load LLM config on login
+  useEffect(() => {
+    if (!loggedIn || !adminKey) return;
+    getLLMConfig(adminKey).then((cfg) => {
+      setLlmBaseUrl(cfg.base_url);
+      setLlmModel(cfg.model);
+      // api_key comes masked; leave input empty so admin can type a new one
+      setLlmApiKey('');
+    }).catch(() => {});
+  }, [loggedIn, adminKey]);
+
   const handleLogin = () => {
     setError('');
     if (!adminKey.trim()) {
@@ -139,16 +169,25 @@ export default function Admin() {
 
   const handleCreate = async () => {
     setError('');
+    setCreatedCodes([]);
     try {
-      await createAdminCode(adminKey, {
-        code: newCode,
+      const result = await createAdminCode(adminKey, {
+        code: autoGenerate ? undefined : newCode || undefined,
         total_quota: parseInt(newQuota) || 100,
         expires_at: newExpiry || undefined,
+        prefix: autoGenerate ? (newPrefix || undefined) : undefined,
+        count: autoGenerate ? (parseInt(newCount) || 1) : 1,
       });
-      setShowCreate(false);
+      if (autoGenerate) {
+        setCreatedCodes(result.codes || []);
+      } else {
+        setShowCreate(false);
+      }
       setNewCode('');
       setNewQuota('100');
       setNewExpiry('');
+      setNewPrefix('');
+      setNewCount('1');
       load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '创建失败');
@@ -195,6 +234,81 @@ export default function Admin() {
       load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '删除失败');
+    }
+  };
+
+  const handleSaveLLM = async () => {
+    setLlmMsg('');
+    setLlmMsgType('');
+    setLlmSaving(true);
+    try {
+      const data: Record<string, string> = {};
+      if (llmApiKey) data.api_key = llmApiKey;
+      if (llmBaseUrl) data.base_url = llmBaseUrl;
+      if (llmModel) data.model = llmModel;
+      await updateLLMConfig(adminKey, data);
+      setLlmMsg('LLM 配置已保存，下次任务将使用新配置');
+      setLlmMsgType('ok');
+      setLlmApiKey('');
+    } catch (e: unknown) {
+      setLlmMsg(e instanceof Error ? e.message : '保存失败');
+      setLlmMsgType('err');
+    } finally {
+      setLlmSaving(false);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    setLlmMsg('');
+    setLlmMsgType('');
+    setLlmTesting(true);
+    try {
+      const result = await testLLMConnection(adminKey, {
+        api_key: llmApiKey || undefined,
+        base_url: llmBaseUrl || undefined,
+        model: llmModel || undefined,
+      });
+      if (result.ok) {
+        let msg = result.message;
+        if (result.model_count != null) msg += `，共 ${result.model_count} 个模型`;
+        if (result.model_found === true) msg += `，当前模型 ✓`;
+        else if (result.model_found === false) msg += `，⚠ 当前模型不在列表中`;
+        setLlmMsg(msg);
+        setLlmMsgType('ok');
+      } else {
+        setLlmMsg(result.message);
+        setLlmMsgType('err');
+      }
+    } catch (e: unknown) {
+      setLlmMsg(e instanceof Error ? e.message : '检测失败');
+      setLlmMsgType('err');
+    } finally {
+      setLlmTesting(false);
+    }
+  };
+
+  const handleFetchModels = async () => {
+    setLlmMsg('');
+    setLlmMsgType('');
+    setLlmLoading(true);
+    try {
+      const models = await listLLMModels(adminKey, {
+        api_key: llmApiKey || undefined,
+        base_url: llmBaseUrl || undefined,
+      });
+      setLlmModels(models);
+      if (models.length === 0) {
+        setLlmMsg('未获取到可用模型');
+        setLlmMsgType('err');
+      } else {
+        setLlmMsg(`获取到 ${models.length} 个模型`);
+        setLlmMsgType('ok');
+      }
+    } catch (e: unknown) {
+      setLlmMsg(e instanceof Error ? e.message : '获取模型列表失败');
+      setLlmMsgType('err');
+    } finally {
+      setLlmLoading(false);
     }
   };
 
@@ -361,16 +475,54 @@ export default function Admin() {
         {showCreate && (
           <div style={{ marginTop: 24, padding: '20px', background: '#f8f9ff', borderRadius: 10, border: '1px solid #e0e3f2' }}>
             <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 14 }}>创建兑换码</h3>
+
+            {/* Auto / Manual toggle */}
+            <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                <input type="radio" checked={autoGenerate} onChange={() => setAutoGenerate(true)} />
+                自动生成
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                <input type="radio" checked={!autoGenerate} onChange={() => setAutoGenerate(false)} />
+                手动输入
+              </label>
+            </div>
+
             <div style={{ display: 'flex', gap: 12, marginBottom: 14, flexWrap: 'wrap' as const }}>
-              <div style={{ flex: '1 1 200px' }}>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#444' }}>兑换码</label>
-                <input
-                  value={newCode}
-                  onChange={(e) => setNewCode(e.target.value)}
-                  placeholder="如 SUMMER2026"
-                  style={inputStyle}
-                />
-              </div>
+              {!autoGenerate ? (
+                <div style={{ flex: '1 1 200px' }}>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#444' }}>兑换码</label>
+                  <input
+                    value={newCode}
+                    onChange={(e) => setNewCode(e.target.value)}
+                    placeholder="如 SUMMER2026"
+                    style={inputStyle}
+                  />
+                </div>
+              ) : (
+                <>
+                  <div style={{ flex: '1 1 140px' }}>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#444' }}>前缀（可选）</label>
+                    <input
+                      value={newPrefix}
+                      onChange={(e) => setNewPrefix(e.target.value)}
+                      placeholder="如 VIP"
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div style={{ flex: '0 0 100px' }}>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#444' }}>数量</label>
+                    <input
+                      value={newCount}
+                      onChange={(e) => setNewCount(e.target.value)}
+                      type="number"
+                      min={1}
+                      max={100}
+                      style={inputStyle}
+                    />
+                  </div>
+                </>
+              )}
               <div style={{ flex: '0 0 120px' }}>
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#444' }}>总次数</label>
                 <input
@@ -392,12 +544,134 @@ export default function Admin() {
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={handleCreate} style={btnPrimary}>创建</button>
-              <button onClick={() => setShowCreate(false)} style={{ ...btnPrimary, background: '#fff', color: '#666', border: '1px solid #dadce0' }}>
+              <button onClick={() => { setShowCreate(false); setCreatedCodes([]); }} style={{ ...btnPrimary, background: '#fff', color: '#666', border: '1px solid #dadce0' }}>
                 取消
               </button>
             </div>
+
+            {/* Show generated codes */}
+            {createdCodes.length > 0 && (
+              <div style={{ marginTop: 16, padding: '14px', background: '#e6f4ea', borderRadius: 8, border: '1px solid #a8dab5' }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#137333', marginBottom: 8 }}>
+                  已生成 {createdCodes.length} 个兑换码：
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
+                  {createdCodes.map((c) => (
+                    <span
+                      key={c}
+                      onClick={() => { navigator.clipboard.writeText(c); }}
+                      title="点击复制"
+                      style={{
+                        fontFamily: 'monospace',
+                        fontSize: 13,
+                        fontWeight: 600,
+                        padding: '4px 10px',
+                        background: '#fff',
+                        borderRadius: 5,
+                        border: '1px solid #a8dab5',
+                        cursor: 'pointer',
+                        userSelect: 'all',
+                      }}
+                    >
+                      {c}
+                    </span>
+                  ))}
+                </div>
+                <div style={{ fontSize: 11, color: '#666', marginTop: 6 }}>点击兑换码可复制到剪贴板</div>
+              </div>
+            )}
           </div>
         )}
+      </div>
+
+      {/* LLM Settings */}
+      <div style={cardStyle}>
+        <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 14, color: '#333' }}>LLM 配置</h3>
+        <p style={{ fontSize: 12, color: '#888', marginBottom: 14 }}>
+          配置 OpenAI 兼容的 LLM API，用于智能段落分类和自然语言模板解析。保存后立即生效。
+        </p>
+
+        {llmMsg && (
+          <div style={{
+            background: llmMsgType === 'err' ? '#fce8e6' : '#e6f4ea',
+            color: llmMsgType === 'err' ? '#c5221f' : '#137333',
+            padding: '10px 14px', borderRadius: 8, fontSize: 13, marginBottom: 14,
+          }}>
+            {llmMsg}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 12, marginBottom: 12, flexWrap: 'wrap' as const }}>
+          <div style={{ flex: '1 1 200px' }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#444' }}>API Key</label>
+            <input
+              type="password"
+              value={llmApiKey}
+              onChange={(e) => setLlmApiKey(e.target.value)}
+              placeholder="留空则不更新"
+              style={inputStyle}
+            />
+          </div>
+          <div style={{ flex: '1 1 280px' }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#444' }}>Base URL</label>
+            <input
+              value={llmBaseUrl}
+              onChange={(e) => setLlmBaseUrl(e.target.value)}
+              placeholder="https://api.openai.com/v1"
+              style={inputStyle}
+            />
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'flex-end', flexWrap: 'wrap' as const }}>
+          <div style={{ flex: '1 1 200px' }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#444' }}>模型</label>
+            {llmModels.length > 0 ? (
+              <div>
+                <select
+                  value={llmModels.includes(llmModel) ? llmModel : ''}
+                  onChange={(e) => { if (e.target.value) setLlmModel(e.target.value); }}
+                  style={inputStyle}
+                >
+                  <option value="">-- 选择模型 --</option>
+                  {llmModels.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                  {!llmModels.includes(llmModel) && llmModel && (
+                    <option value={llmModel}>{llmModel} (自定义)</option>
+                  )}
+                </select>
+                <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 12, color: '#888' }}>或手动输入：</span>
+                  <input
+                    value={llmModel}
+                    onChange={(e) => setLlmModel(e.target.value)}
+                    placeholder="gpt-4o-mini"
+                    style={{ ...inputStyle, flex: 1, padding: '6px 8px', fontSize: 13 }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <input
+                value={llmModel}
+                onChange={(e) => setLlmModel(e.target.value)}
+                placeholder="gpt-4o-mini"
+                style={inputStyle}
+              />
+            )}
+          </div>
+          <div style={{ flex: '0 0 auto', display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
+            <button onClick={handleTestConnection} disabled={llmTesting} style={{ ...btnPrimary, background: '#34a853' }}>
+              {llmTesting ? '检测中...' : '检测连接'}
+            </button>
+            <button onClick={handleFetchModels} disabled={llmLoading} style={{ ...btnPrimary, background: '#6c63ff' }}>
+              {llmLoading ? '获取中...' : '获取模型列表'}
+            </button>
+            <button onClick={handleSaveLLM} disabled={llmSaving} style={btnPrimary}>
+              {llmSaving ? '保存中...' : '保存配置'}
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Stats summary */}

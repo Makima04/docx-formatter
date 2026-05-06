@@ -19,25 +19,35 @@ class LLMClient:
         self.model = model
         self.timeout = timeout
 
-    async def chat(self, prompt: str, system: str = "", temperature: float = 0.1) -> str:
+    async def chat(self, prompt: str, system: str = "", temperature: float = 0.1,
+                   use_json_format: bool = True) -> str:
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
+        payload: dict = {"model": self.model, "messages": messages, "temperature": temperature}
+        if use_json_format:
+            payload["response_format"] = {"type": "json_object"}
+
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.post(
                 f"{self.base_url}/chat/completions",
                 headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
-                json={"model": self.model, "messages": messages, "temperature": temperature,
-                       "response_format": {"type": "json_object"}},
+                json=payload,
             )
             resp.raise_for_status()
             data = resp.json()
-            return data["choices"][0]["message"]["content"]
+            content = data["choices"][0]["message"]["content"]
+            if not content or not content.strip():
+                raise ValueError("LLM returned empty content")
+            return content
 
     async def classify_paragraphs(self, prompt: str) -> str:
-        return await self.chat(prompt, temperature=0.05)
+        # Most providers handle JSON-instruction prompts fine without json_object format.
+        # json_object format is unreliable with many providers (they return mixed content).
+        json_prompt = prompt + "\n\n请严格输出合法 JSON 数组，不要包含任何其他文本或 markdown 代码块标记。"
+        return await self.chat(json_prompt, temperature=0.05, use_json_format=False)
 
 
 _TEMPLATE_PARSE_PROMPT = """你是文档排版专家。用户用自然语言描述了一个排版模板需求，请将其解析为结构化 JSON。

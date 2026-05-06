@@ -44,12 +44,17 @@ _llm_client: Optional[LLMClient] = None
 
 def get_llm_client() -> Optional[LLMClient]:
     global _llm_client
-    if _llm_client is None and settings.llm_api_key:
-        _llm_client = LLMClient(
-            api_key=settings.llm_api_key,
-            base_url=settings.llm_base_url,
-            model=settings.llm_model,
-        )
+    if _llm_client is None:
+        from app.db import get_setting
+        api_key = get_setting("llm_api_key", "") or settings.llm_api_key
+        if api_key:
+            base_url = get_setting("llm_base_url", "") or settings.llm_base_url
+            model = get_setting("llm_model", "") or settings.llm_model
+            _llm_client = LLMClient(
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+            )
     return _llm_client
 
 
@@ -77,10 +82,12 @@ async def startup():
 from app.api.redeem import router as redeem_router
 from app.api.templates import router as templates_router
 from app.api.batch import router as batch_router
+from app.api.admin import router as admin_router
 
 app.include_router(redeem_router)
 app.include_router(templates_router)
 app.include_router(batch_router)
+app.include_router(admin_router)
 
 
 # ── Core endpoints ────────────────────────────────────────────────────

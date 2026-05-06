@@ -57,4 +57,5 @@ export interface HistoryItem {
   template: string;
   status: 'completed' | 'failed';
   timestamp: number;
+  classification_result?: ClassificationItem[];
 }

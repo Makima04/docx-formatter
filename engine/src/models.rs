@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 // ── Paragraph types ─────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum ParagraphType {
     Heading1,
     Heading2,

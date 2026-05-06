@@ -87,6 +87,11 @@ def init_db():
                 FOREIGN KEY (batch_id) REFERENCES batch_tasks(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_redeem_code ON redeem_codes(code);
             CREATE INDEX IF NOT EXISTS idx_batch_code ON batch_tasks(code);
         """)
@@ -97,6 +102,23 @@ def init_db():
             _seed_builtin_templates(conn)
 
     logger.info(f"Database initialized at {DB_PATH}")
+
+
+def get_setting(key: str, default: str = "") -> str:
+    """Read a setting from the settings table."""
+    with get_db() as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else default
+
+
+def set_setting(key: str, value: str):
+    """Upsert a setting in the settings table."""
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
 
 
 def _seed_builtin_templates(conn: sqlite3.Connection):

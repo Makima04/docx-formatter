@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import FileUpload from '../components/FileUpload';
 import ProgressBar from '../components/ProgressBar';
 import ClassificationTable from '../components/ClassificationTable';
+import DocxPreview from '../components/DocxPreview';
 import { formatDocument, downloadUrl } from '../api/client';
 import { listTemplates } from '../api/client';
 import { useTaskPolling } from '../hooks/useTaskPolling';
@@ -24,6 +25,7 @@ export default function Home({ code, onQuotaChange }: Props) {
   const [tplDesc, setTplDesc] = useState('');
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   const { task, polling, start } = useTaskPolling();
   const history = useHistory();
@@ -42,6 +44,7 @@ export default function Home({ code, onQuotaChange }: Props) {
         template: tplId ? String(tplId) : 'default',
         status: 'completed',
         timestamp: Date.now(),
+        classification_result: task.classification_result || undefined,
       });
     } else if (task?.status === 'failed') {
       setError(task.message);
@@ -79,6 +82,7 @@ export default function Home({ code, onQuotaChange }: Props) {
     setTplDesc('');
     setError('');
     setDone(false);
+    setShowPreview(false);
   };
 
   return (
@@ -212,24 +216,39 @@ export default function Home({ code, onQuotaChange }: Props) {
           <div style={{ textAlign: 'center', padding: '20px 0' }}>
             <div style={{ fontSize: 48, marginBottom: 10 }}>✅</div>
             <p style={{ fontSize: 16, fontWeight: 500 }}>排版完成！</p>
-            <a
-              href={downloadUrl(task.task_id)}
-              download
-              style={{
-                display: 'inline-block',
-                marginTop: 14,
-                padding: '12px 32px',
-                background: '#34a853',
-                color: '#fff',
-                borderRadius: 8,
-                textDecoration: 'none',
-                fontSize: 15,
-                fontWeight: 600,
-              }}
-            >
-              下载排版文档
-            </a>
-            <br />
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginTop: 14 }}>
+              <button
+                onClick={() => setShowPreview(true)}
+                style={{
+                  padding: '12px 32px',
+                  background: '#1a73e8',
+                  color: '#fff',
+                  borderRadius: 8,
+                  border: 'none',
+                  fontSize: 15,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                在线预览
+              </button>
+              <a
+                href={downloadUrl(task.task_id)}
+                download
+                style={{
+                  display: 'inline-block',
+                  padding: '12px 32px',
+                  background: '#34a853',
+                  color: '#fff',
+                  borderRadius: 8,
+                  textDecoration: 'none',
+                  fontSize: 15,
+                  fontWeight: 600,
+                }}
+              >
+                下载排版文档
+              </a>
+            </div>
             <button
               onClick={handleRestart}
               style={{
@@ -245,6 +264,12 @@ export default function Home({ code, onQuotaChange }: Props) {
             >
               继续排版下一个文档
             </button>
+            {showPreview && (
+              <DocxPreview
+                taskIds={[task.task_id]}
+                onClose={() => setShowPreview(false)}
+              />
+            )}
           </div>
         )}
       </div>
