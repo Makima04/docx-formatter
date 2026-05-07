@@ -27,53 +27,149 @@ HEADING3_PATS = [
     re.compile(r'^[①②③④⑤⑥⑦⑧⑨⑩]'),
 ]
 
-STRUCTURAL_KEYWORDS = {
-    '摘要': 'heading1', 'abstract': 'heading1',
-    '关键词': 'heading1', 'keywords': 'heading1',
-    '目录': 'heading1', '参考文献': 'heading1', 'references': 'heading1',
-    '致谢': 'heading1', '附录': 'heading1',
-    '引言': 'heading1', '结论': 'heading1', '绪论': 'heading1',
+# Content-based role detection — used alongside formatting, never alone
+CONTENT_ROLE_PATS: dict[str, list[re.Pattern]] = {
+    'abstract': [re.compile(r'^摘\s*要$'), re.compile(r'^Abstract$', re.I)],
+    'keywords': [re.compile(r'^关键词[：:]'), re.compile(r'^Keywords[：:]', re.I)],
+    'reference': [re.compile(r'^\[\d+\]')],
+    'caption_figure': [re.compile(r'^图\s*\d+[-.]\d+')],
+    'caption_table': [re.compile(r'^表\s*\d+[-.]\d+')],
+    'appendix': [re.compile(r'^附录\s*[A-Z\d]'), re.compile(r'^Appendix\s*[A-Z\d]', re.I)],
+    'formula': [re.compile(r'^\(\d+[-.]\d+\)'), re.compile(r'^（\d+[-.]\d+）')],
+    'cover': [
+        re.compile(r'(?:毕业|学位|学士|硕士|博士)论文', re.I),
+        re.compile(r'(?:本科|研究生)毕业设计'),
+        re.compile(r'^\S{2,}(?:大学|学院|研究院)'),
+        re.compile(r'(?:指导|辅导)教师[：:]'),
+        re.compile(r'(?:学\s*号|姓\s*名|院\s*系|专\s*业)[：:]'),
+    ],
 }
 
-CAPTION_FIG_RE = re.compile(r'^图\s*\d+[-.]\d+')
-CAPTION_TAB_RE = re.compile(r'^表\s*\d+[-.]\d+')
-REF_RE = re.compile(r'^\[\d+\]')
-
-# Phrases that indicate body text — these should never be classified as headings
-# even if bold/large/centered. They are transitional or explanatory sentence starts.
-BODY_START_PHRASES = [
-    '本文', '为了', '为便于', '为提升', '为反映', '综合', '结合', '因此',
-    '此外', '尽管', '后续', '这种', '通过', '非功能', '但也', '若需要',
-    '软件开发', '移植层主要', '调度算法可概括', '系统上电',
-    '考虑到', '基于以上', '该方法', '该机制', '该结构', '从工程',
-    '与桌面', '在同步', '此外，', '在实际', '需要说明', '需要指出',
-    '从结果', '与FreeRTOS', '由此可见', '在论文', '该策略',
-]
+# Paragraph style names that map directly to roles (from w:pStyle in the docx)
+STYLE_NAME_TO_ROLE: dict[str, str] = {
+    'Heading 1': 'heading1', 'Heading 2': 'heading2', 'Heading 3': 'heading3',
+    'heading1': 'heading1', 'heading2': 'heading2', 'heading3': 'heading3',
+    '标题 1': 'heading1', '标题 2': 'heading2', '标题 3': 'heading3',
+    '标题1': 'heading1', '标题2': 'heading2', '标题3': 'heading3',
+    'Title': 'heading1', 'Subtitle': 'heading2',
+    'TOC Heading': 'toc',
+    'Quote': 'quote', '引用': 'quote',
+    'List Bullet': 'list_item', 'List Number': 'list_item',
+}
 
 
 def _match_pattern(text: str, patterns: list) -> bool:
     return any(p.match(text) for p in patterns)
 
 
+def _match_content_role(text: str) -> Optional[str]:
+    """Check if text matches a known content pattern."""
+    for role, patterns in CONTENT_ROLE_PATS.items():
+        if any(p.match(text) for p in patterns):
+            return role
+    return None
+
+
+def _style_name_to_role(style_name: Optional[str]) -> Optional[str]:
+    """Map a paragraph style name to a semantic role."""
+    if not style_name:
+        return None
+    return STYLE_NAME_TO_ROLE.get(style_name)
+
+
+def _format_similarity(para: dict, style: dict) -> float:
+    """Score how well a paragraph's formatting matches a template style definition.
+
+    Returns 0.0-1.0. Higher = better match.
+    """
+    score = 0.0
+    checks = 0
+
+    # Font size match (most reliable signal)
+    psize = para.get('font_size_pt')
+    ssize = style.get('font_size_pt')
+    if psize and ssize:
+        checks += 1
+        diff = abs(psize - ssize)
+        if diff <= 0.5:
+            score += 1.0
+        elif diff <= 1.0:
+            score += 0.7
+        elif diff <= 2.0:
+            score += 0.3
+
+    # Bold match
+    pbold = para.get('bold', False)
+    sbold = style.get('bold', False)
+    if sbold is not None:
+        checks += 1
+        if pbold == sbold:
+            score += 1.0
+        elif sbold and not pbold:
+            score += 0.0  # style says bold, para isn't
+        else:
+            score += 0.5  # para is bold but style doesn't require it
+
+    # Alignment match
+    palign = para.get('alignment')
+    salign = style.get('alignment')
+    if palign and salign:
+        checks += 1
+        if palign == salign:
+            score += 1.0
+        else:
+            score += 0.0
+
+    # First line indent match
+    pindent = para.get('is_first_line_indent', False)
+    sindent = style.get('first_line_indent_chars', 0)
+    checks += 1
+    if pindent and sindent and sindent > 0:
+        score += 1.0
+    elif not pindent and (not sindent or sindent == 0):
+        score += 1.0
+    else:
+        score += 0.0
+
+    return score / checks if checks > 0 else 0.0
+
+
 def classify_one(text: str, font_size: Optional[float], bold: bool,
                  alignment: Optional[str], char_count: int,
-                 body_font_size: float) -> tuple[str, float]:
+                 body_font_size: float,
+                 paragraph_style_name: Optional[str] = None,
+                 is_first_line_indent: bool = False,
+                 space_before_pt: Optional[float] = None,
+                 line_spacing: Optional[float] = None,
+                 style_map: Optional[dict] = None) -> tuple[str, float]:
     stripped = text.strip()
     if not stripped or char_count < 2:
         return "body", 0.5
 
-    if CAPTION_FIG_RE.match(stripped):
-        return "caption_figure", 0.95
-    if CAPTION_TAB_RE.match(stripped):
-        return "caption_table", 0.95
-    if REF_RE.match(stripped):
-        return "reference", 0.85
+    # ── Step 1: Check paragraph style name ────────────────────────
+    role_from_style = _style_name_to_role(paragraph_style_name)
+    if role_from_style:
+        return role_from_style, 0.90
 
-    lower = stripped.lower()
-    for kw, kw_type in STRUCTURAL_KEYWORDS.items():
-        if lower == kw or lower.startswith(kw):
-            return kw_type, 0.90
+    # ── Step 2: Content pattern matching ──────────────────────────
+    content_role = _match_content_role(stripped)
+    if content_role:
+        # Content match gives a tentative role, but verify with formatting
+        # e.g., "摘要" in a heading font should be abstract, not heading1
+        if style_map and content_role in style_map:
+            tpl_style = style_map[content_role]
+            sim = _format_similarity({
+                'font_size_pt': font_size, 'bold': bold,
+                'alignment': alignment, 'is_first_line_indent': is_first_line_indent,
+            }, tpl_style)
+            # If formatting roughly matches the template style, use it
+            if sim >= 0.3:
+                return content_role, 0.85
+        # Even without template style, content patterns for these are reliable
+        if content_role in ('abstract', 'keywords', 'reference', 'caption_figure', 'caption_table', 'appendix', 'formula', 'cover'):
+            return content_role, 0.80
 
+    # ── Step 3: Heading pattern matching ──────────────────────────
     if _match_pattern(stripped, HEADING1_PATS):
         return "heading1", 0.85
     if _match_pattern(stripped, HEADING2_PATS):
@@ -81,11 +177,24 @@ def classify_one(text: str, font_size: Optional[float], bold: bool,
     if _match_pattern(stripped, HEADING3_PATS):
         return "heading3", 0.85
 
-    # Check if text starts with a known body paragraph phrase
-    for phrase in BODY_START_PHRASES:
-        if stripped.startswith(phrase):
-            return "body", 0.65
+    # ── Step 4: Template style matching (if available) ────────────
+    if style_map:
+        best_role = None
+        best_score = 0.0
+        para_props = {
+            'font_size_pt': font_size, 'bold': bold,
+            'alignment': alignment, 'is_first_line_indent': is_first_line_indent,
+        }
+        for role, tpl_style in style_map.items():
+            sim = _format_similarity(para_props, tpl_style)
+            if sim > best_score:
+                best_score = sim
+                best_role = role
 
+        if best_role and best_score >= 0.75:
+            return best_role, min(best_score, 0.90)
+
+    # ── Step 5: Heuristic scoring (fallback) ──────────────────────
     font_ratio = (font_size / body_font_size) if font_size and body_font_size else 1.0
     is_large = font_ratio >= 1.1
     is_short = char_count < 60
@@ -99,8 +208,6 @@ def classify_one(text: str, font_size: Optional[float], bold: bool,
     if is_short: score += 0.15
     if is_very_short: score += 0.05
 
-    # Long paragraphs need more evidence to be headings
-    # A 200+ char "bold large" paragraph is almost certainly body text
     threshold = 0.5
     if char_count >= 200:
         threshold = 0.75
@@ -109,8 +216,6 @@ def classify_one(text: str, font_size: Optional[float], bold: bool,
     elif char_count >= 60:
         threshold = 0.60
     else:
-        # Short paragraph: need more evidence if it starts with lowercase or common body words
-        # Bold + large + centered = 0.7 is still over 0.55, so raise to 0.65
         threshold = 0.65
 
     if score >= threshold:
@@ -124,7 +229,7 @@ def classify_one(text: str, font_size: Optional[float], bold: bool,
     return "body", 0.6
 
 
-def classify_paragraphs(paragraphs: list[dict]) -> list[dict]:
+def classify_paragraphs(paragraphs: list[dict], style_map: Optional[dict] = None) -> list[dict]:
     sizes = [p['font_size_pt'] for p in paragraphs if p.get('font_size_pt') and p['font_size_pt'] > 0]
     body_font_size = sorted(sizes)[len(sizes) // 2] if sizes else 12.0
 
@@ -133,6 +238,11 @@ def classify_paragraphs(paragraphs: list[dict]) -> list[dict]:
             text=para.get('text', ''), font_size=para.get('font_size_pt'),
             bold=para.get('bold', False), alignment=para.get('alignment'),
             char_count=para.get('char_count', 0), body_font_size=body_font_size,
+            paragraph_style_name=para.get('paragraph_style_name'),
+            is_first_line_indent=para.get('is_first_line_indent', False),
+            space_before_pt=para.get('space_before_pt'),
+            line_spacing=para.get('line_spacing'),
+            style_map=style_map,
         )
         para['paragraph_type'] = ptype
         para['confidence'] = conf
@@ -152,7 +262,7 @@ def build_llm_classification_prompt(paragraphs: list[dict], indices: list[int]) 
 
     return f"""你是文档结构分析专家。判断以下段落的类型。
 
-类型：heading1, heading2, heading3, body, caption_figure, caption_table, reference, abstract, keywords, quote, list_item
+类型：heading1, heading2, heading3, body, caption_figure, caption_table, reference, abstract, keywords, quote, list_item, cover, appendix, formula
 
 严格输出 JSON 数组：[{{"index": 序号, "type": "类型", "confidence": 0.0-1.0}}]
 
@@ -206,7 +316,8 @@ def parse_llm_response(response: str) -> list[dict]:
         results = json.loads(json_str)
         valid_types = {"heading1","heading2","heading3","body","body_indent",
                        "caption_figure","caption_table","reference","abstract",
-                       "keywords","quote","list_item","code","toc","unknown"}
+                       "keywords","quote","list_item","code","toc",
+                       "cover","appendix","formula","unknown"}
         return [{"index": i["index"], "type": i["type"], "confidence": float(i.get("confidence", 0.6))}
                 for i in results if i.get("type") in valid_types]
     except Exception as e:

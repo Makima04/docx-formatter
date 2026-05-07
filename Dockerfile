@@ -41,6 +41,13 @@ FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
+# Install LibreOffice Writer for PDF rendering (Phase 5)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libreoffice-writer \
+        libreoffice-core \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install Python deps first (cached unless requirements.txt changes)
 COPY python/requirements.txt python/
 RUN --mount=type=cache,target=/root/.cache/pip \

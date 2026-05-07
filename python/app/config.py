@@ -27,6 +27,12 @@ class Settings(BaseSettings):
 
     admin_api_key: Optional[str] = None
 
+    # Phase 5: rendering & validation
+    libreoffice_path: str = "libreoffice"
+    enable_pdf_validation: bool = True
+    max_repair_iterations: int = 3
+    pdf_dpi: int = 150
+
     model_config = {"env_prefix": "DOCFMT_", "env_file": ".env"}
 
 

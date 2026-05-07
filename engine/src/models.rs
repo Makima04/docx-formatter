@@ -23,6 +23,9 @@ pub enum ParagraphType {
     Code,
     ListItem,
     Toc,
+    Cover,
+    Appendix,
+    Formula,
     Unknown,
 }
 
@@ -43,6 +46,9 @@ impl ParagraphType {
             "code" => Self::Code,
             "list_item" => Self::ListItem,
             "toc" => Self::Toc,
+            "cover" => Self::Cover,
+            "appendix" => Self::Appendix,
+            "formula" => Self::Formula,
             _ => Self::Unknown,
         }
     }
@@ -63,9 +69,64 @@ impl ParagraphType {
             Self::Code => "code",
             Self::ListItem => "list_item",
             Self::Toc => "toc",
+            Self::Cover => "cover",
+            Self::Appendix => "appendix",
+            Self::Formula => "formula",
             Self::Unknown => "unknown",
         }
     }
+}
+
+// ── Numbering models ───────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NumberingLevel {
+    pub level: u32,
+    pub format: String,       // "decimal", "lowerLetter", "upperLetter", "lowerRoman", "upperRoman", "bullet"
+    pub text: String,          // e.g. "%1.", "%1.%2.", "•"
+    pub alignment: String,     // "left", "center", "right"
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NumberingDef {
+    pub num_id: u32,
+    pub abstract_num_id: u32,
+    pub levels: Vec<NumberingLevel>,
+}
+
+// ── Section models ────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SectionPolicy {
+    pub name: String,                    // "cover", "abstract", "toc", "body", "appendix"
+    pub start_type: String,              // "next_page", "odd_page", "even_page", "continuous"
+    pub page_number_format: String,      // "none", "roman_lower", "roman_upper", "decimal"
+    pub page_number_start: Option<i32>,
+    pub header_text: Option<String>,
+    pub footer_policy: String,           // "inherit", "custom", "none"
+    pub suppress_page_number: bool,
+}
+
+impl Default for SectionPolicy {
+    fn default() -> Self {
+        Self {
+            name: "body".to_string(),
+            start_type: "next_page".to_string(),
+            page_number_format: "decimal".to_string(),
+            page_number_start: Some(1),
+            header_text: None,
+            footer_policy: "inherit".to_string(),
+            suppress_page_number: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SectionDef {
+    pub section_index: usize,
+    pub policy: SectionPolicy,
+    pub start_paragraph_index: usize,
+    pub end_paragraph_index: usize,
 }
 
 // ── Extracted data structures ───────────────────────────────────────
@@ -86,6 +147,7 @@ pub struct ExtractedParagraph {
     pub char_count: usize,
     pub paragraph_type: ParagraphType,
     pub confidence: f64,
+    pub paragraph_style_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,7 +177,50 @@ pub struct ExtractedDocument {
     pub paragraphs: Vec<ExtractedParagraph>,
     pub tables: Vec<ExtractedTable>,
     pub images: Vec<ExtractedImage>,
+    #[serde(default)]
+    pub numbering: Vec<NumberingDef>,
+    #[serde(default)]
+    pub detected_sections: Vec<SectionDef>,
     pub total_pages_est: usize,
+}
+
+// ── Layout plan ───────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TablePlacement {
+    pub table_index: usize,
+    pub after_para_index: usize,
+    pub include_caption: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TablePlan {
+    pub table_index: usize,
+    pub col_widths_twips: Vec<i64>,
+    pub three_line: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FigurePlan {
+    pub image_index: usize,
+    pub caption_para_index: usize,
+    pub width_emu: i64,
+    pub height_emu: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FormulaPlan {
+    pub para_index: usize,
+    pub chapter: usize,
+    pub number: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LayoutPlan {
+    pub table_placements: Vec<TablePlacement>,
+    pub table_plans: Vec<TablePlan>,
+    pub figure_plans: Vec<FigurePlan>,
+    pub formula_plans: Vec<FormulaPlan>,
 }
 
 // ── Template configuration ──────────────────────────────────────────
@@ -266,6 +371,23 @@ impl Default for ReferenceStyle {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TocSettings {
+    pub enabled: bool,
+    pub title: String,
+    pub levels: u32,
+}
+
+impl Default for TocSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            title: "目录".to_string(),
+            levels: 3,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TemplateConfig {
     pub name: String,
     pub description: String,
@@ -285,6 +407,9 @@ pub struct TemplateConfig {
     pub table: TableStyle,
     pub figure: FigureStyle,
     pub references: ReferenceStyle,
+    #[serde(default)]
+    pub sections: Vec<SectionPolicy>,
+    pub toc: Option<TocSettings>,
 }
 
 impl Default for TemplateConfig {
@@ -385,6 +510,8 @@ impl Default for TemplateConfig {
             table: TableStyle::default(),
             figure: FigureStyle::default(),
             references: ReferenceStyle::default(),
+            sections: Vec::new(),
+            toc: Some(TocSettings::default()),
         }
     }
 }

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 import json
-from fastapi import APIRouter, HTTPException
+import tempfile
+from pathlib import Path
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from typing import Optional
 
 from app.db import get_db
+from app.core.template_analyzer import TemplateAnalyzer
 
 router = APIRouter(prefix="/api/templates", tags=["templates"])
 
@@ -39,6 +42,30 @@ async def list_templates():
     with get_db() as conn:
         rows = conn.execute("SELECT * FROM templates ORDER BY is_builtin DESC, id ASC").fetchall()
     return [_row_to_dict(r) for r in rows]
+
+
+@router.post("/analyze")
+async def analyze_template(file: UploadFile = File(..., description="Template .docx file")):
+    """Analyze a template .docx file and return TemplateProfile + derived TemplateConfig."""
+    if not file.filename or not file.filename.lower().endswith('.docx'):
+        raise HTTPException(400, "Only .docx files are supported")
+
+    content = await file.read()
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(400, "File too large (max 50MB)")
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".docx", delete=False)
+    try:
+        tmp.write(content)
+        tmp.close()
+        analyzer = TemplateAnalyzer(tmp.name)
+        profile = analyzer.analyze()
+    except Exception as e:
+        raise HTTPException(400, f"Failed to analyze template: {e}")
+    finally:
+        Path(tmp.name).unlink(missing_ok=True)
+
+    return profile
 
 
 @router.get("/{template_id}")

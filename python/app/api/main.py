@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.models import TaskInfo, TaskStatus
-from app.core.pipeline import run_format_pipeline, get_task, create_task
+from app.core.pipeline import run_format_pipeline, get_task, create_task, update_task
 from app.core.llm_client import LLMClient
 from app.core.redeem import validate_code, consume_quota, refund_quota
 from app.db import init_db
@@ -177,6 +177,45 @@ async def download_result(task_id: str):
                     filename=f"formatted_{task_id}.docx",
                 )
     raise HTTPException(404, "Output file not found")
+
+
+# ── Confirmation endpoints (Phase 6) ────────────────────────────────
+
+@app.get("/api/tasks/{task_id}/confirmations")
+async def get_confirmations(task_id: str):
+    """Get pending confirmation items for a task."""
+    task = get_task(task_id)
+    if not task:
+        raise HTTPException(404, "Task not found")
+    trace = task.formatting_trace or {}
+    confirmations = []
+    for entry in trace.get("entries", []):
+        if entry.get("stage") == "confirmations":
+            confirmations.extend(entry.get("data", {}).get("items", []))
+    return {"task_id": task_id, "confirmations": confirmations}
+
+
+@app.post("/api/tasks/{task_id}/confirmations/{item_id}")
+async def submit_confirmation(task_id: str, item_id: str, choice: str = Form(...)):
+    """Submit a user's choice for a confirmation item."""
+    task = get_task(task_id)
+    if not task:
+        raise HTTPException(404, "Task not found")
+    trace = task.formatting_trace or {}
+    updated = False
+    for entry in trace.get("entries", []):
+        if entry.get("stage") == "confirmations":
+            items = entry.get("data", {}).get("items", [])
+            for item in items:
+                if item.get("id") == item_id:
+                    item["user_choice"] = choice
+                    item["auto_resolved"] = True
+                    updated = True
+                    break
+    if not updated:
+        raise HTTPException(404, f"Confirmation item {item_id} not found")
+    update_task(task_id, formatting_trace=trace)
+    return {"task_id": task_id, "item_id": item_id, "choice": choice, "status": "accepted"}
 
 
 # ── Serve frontend static files ──────────────────────────────────────

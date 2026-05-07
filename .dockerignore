@@ -1,0 +1,12 @@
+engine/target/
+frontend/node_modules/
+frontend/dist/
+python/**/__pycache__/
+python/static/index.html
+.venv/
+.git/
+.claude/
+docs/
+*.md
+*.pyc
+*.pyo
