@@ -345,6 +345,14 @@ class TemplateAnalyzer:
                 }
                 if sdef.get("page_break_before"):
                     entry["page_break_before"] = True
+                # For abstract/keywords: the named style describes the heading label
+                # (e.g. "摘要" in bold), NOT the body paragraphs. Clear formatting
+                # attrs so body formatting is determined by content analysis below.
+                if role in ("abstract", "keywords"):
+                    for key in ("bold", "italic", "alignment",
+                                "first_line_indent_chars", "hanging_indent_chars",
+                                "space_before_pt", "space_after_pt"):
+                        entry[key] = None
                 style_map[role] = entry
 
         # 2) By content patterns
@@ -358,7 +366,13 @@ class TemplateAnalyzer:
                 continue
             sizes = [p["font_size_pt"] for p in paras if p["font_size_pt"]]
             avg_size = sum(sizes) / len(sizes) if sizes else None
-            any_bold = any(p["bold"] for p in paras)
+            # Majority voting: a single bold heading shouldn't make the whole role bold
+            bold_true = sum(1 for p in paras if p["bold"] is True)
+            bold_false = sum(1 for p in paras if p["bold"] is False)
+            bold = bold_true > bold_false
+            italic_true = sum(1 for p in paras if p["italic"] is True)
+            italic_false = sum(1 for p in paras if p["italic"] is False)
+            italic = italic_true > italic_false
             aligns = [p["alignment"] for p in paras]
             common_align = max(set(aligns), key=aligns.count) if aligns else "left"
             p0 = paras[0]
@@ -367,8 +381,8 @@ class TemplateAnalyzer:
                 "source": "content_pattern",
                 "font_name": p0["font_name"],
                 "font_size_pt": avg_size,
-                "bold": any_bold,
-                "italic": False,
+                "bold": bold,
+                "italic": italic,
                 "alignment": common_align,
                 "space_before_pt": p0["space_before_pt"],
                 "space_after_pt": p0["space_after_pt"],
@@ -379,7 +393,55 @@ class TemplateAnalyzer:
                 "line_spacing_rule": "multiple",
             }
 
-        # 3) By implicit clusters
+        # 2.5) For abstract/keywords: refine with body paragraph formatting
+        # The heading label (e.g. "摘要") has different formatting than body text.
+        # Scan paragraphs after the heading to find body formatting.
+        for role in ("abstract", "keywords"):
+            entry = style_map.get(role)
+            if not entry:
+                continue
+            # Find the heading paragraph for this role
+            heading_idx = None
+            for para in para_analysis:
+                if para["content_role"] == role and para["char_count"] < 15:
+                    heading_idx = para["index"]
+                    break
+            if heading_idx is None:
+                continue
+            # Collect body paragraphs after the heading (until next section boundary)
+            body_paras = []
+            for para in para_analysis:
+                if para["index"] <= heading_idx:
+                    continue
+                # Stop at next heading or different content role
+                if para["content_role"] and para["content_role"] != role:
+                    break
+                if para["char_count"] >= 15:
+                    body_paras.append(para)
+                if len(body_paras) >= 5:
+                    break
+            if not body_paras:
+                continue
+            # Use majority formatting from body paragraphs
+            for attr in ("bold", "italic", "alignment",
+                         "space_before_pt", "space_after_pt"):
+                if entry.get(attr) is not None:
+                    continue  # Already has a value from style name
+                values = [p.get(attr) for p in body_paras if p.get(attr) is not None]
+                if not values:
+                    continue
+                if attr in ("bold", "italic"):
+                    # Boolean: majority vote
+                    true_count = sum(1 for v in values if v is True)
+                    false_count = sum(1 for v in values if v is False)
+                    if true_count + false_count > 0:
+                        entry[attr] = true_count > false_count
+                elif attr == "alignment":
+                    # String: most common
+                    entry[attr] = max(set(values), key=values.count)
+                else:
+                    # Numeric: average
+                    entry[attr] = sum(values) / len(values)
         for cluster in clusters:
             for role in cluster["content_roles"]:
                 if role in style_map:
