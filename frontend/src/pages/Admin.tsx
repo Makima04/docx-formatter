@@ -150,14 +150,23 @@ export default function Admin() {
     }).catch(() => {});
   }, [loggedIn, adminKey]);
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     setError('');
     if (!adminKey.trim()) {
       setError('请输入 Admin Key');
       return;
     }
-    localStorage.setItem(ADMIN_KEY_STORAGE, adminKey.trim());
-    setLoggedIn(true);
+    try {
+      await listAdminCodes(adminKey.trim());
+      localStorage.setItem(ADMIN_KEY_STORAGE, adminKey.trim());
+      setLoggedIn(true);
+    } catch (e: unknown) {
+      if (e instanceof Error && e.message.includes('403')) {
+        setError('Admin key 无效，请重试');
+      } else {
+        setError(e instanceof Error ? e.message : '验证失败');
+      }
+    }
   };
 
   const handleLogout = () => {
