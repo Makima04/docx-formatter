@@ -15,7 +15,7 @@ import docx_fmt_core  # Rust extension
 
 from app.models import TaskInfo, TaskStatus
 from app.config import settings
-from app.db import get_setting
+from app.db import get_setting, insert_llm_log
 from app.core.classifier import (
     classify_paragraphs, get_uncertain_indices,
     build_llm_classification_prompt, parse_llm_response,
@@ -222,9 +222,16 @@ async def run_format_pipeline(
                         prompt = build_llm_classification_prompt(doc['paragraphs'], chunk)
                         try:
                             response = await llm_client.classify_paragraphs(prompt, task_id=task_id)
-                            return parse_llm_response(response)
+                            results, parse_error = parse_llm_response(response)
+                            if parse_error:
+                                logger.warning(f"LLM parse failed: {parse_error}")
+                                # Log as a separate entry so the admin UI can distinguish
+                                # API failures from format/parse failures
+                                insert_llm_log(task_id, "classify", llm_client.model, prompt, response,
+                                               "parse_failed", parse_error, None)
+                            return results
                         except Exception as e:
-                            logger.error(f"LLM chunk failed: {e}")
+                            logger.error(f"LLM API call failed: {e}")
                             return []
 
                 results = await asyncio.gather(*[classify_chunk(c) for c in chunks])

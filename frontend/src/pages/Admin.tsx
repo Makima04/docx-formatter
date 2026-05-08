@@ -756,10 +756,10 @@ export default function Admin() {
                       <td style={tdStyle}>{log.model}</td>
                       <td style={tdStyle}>
                         <span style={{
-                          color: log.status === 'success' ? '#137333' : '#c5221f',
+                          color: log.status === 'success' ? '#137333' : log.status === 'parse_failed' ? '#e37400' : '#c5221f',
                           fontWeight: 600,
                         }}>
-                          {log.status === 'success' ? '成功' : '失败'}
+                          {log.status === 'success' ? '成功' : log.status === 'parse_failed' ? '解析失败' : '调用失败'}
                         </span>
                       </td>
                       <td style={tdStyle}>{log.latency_ms ?? '-'}</td>
@@ -802,9 +802,32 @@ export default function Admin() {
                                 {log.response}
                               </pre>
                             </div>
+                          ) : log.status === 'parse_failed' ? (
+                            <>
+                              <div style={{ marginBottom: 10 }}>
+                                <div style={{ fontSize: 11, fontWeight: 600, color: '#e37400', marginBottom: 4 }}>解析错误</div>
+                                <pre style={{
+                                  margin: 0, padding: 10, background: '#fff', borderRadius: 6,
+                                  fontSize: 11, color: '#e37400', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                                  maxHeight: 200, overflowY: 'auto' as const, border: '1px solid #e8eaed',
+                                }}>
+                                  {log.error_msg || '无法解析LLM返回的JSON格式'}
+                                </pre>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 11, fontWeight: 600, color: '#444', marginBottom: 4 }}>LLM原始响应</div>
+                                <pre style={{
+                                  margin: 0, padding: 10, background: '#fff', borderRadius: 6,
+                                  fontSize: 11, color: '#333', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                                  maxHeight: 200, overflowY: 'auto' as const, border: '1px solid #e8eaed',
+                                }}>
+                                  {log.response}
+                                </pre>
+                              </div>
+                            </>
                           ) : (
                             <div>
-                              <div style={{ fontSize: 11, fontWeight: 600, color: '#c5221f', marginBottom: 4 }}>错误信息</div>
+                              <div style={{ fontSize: 11, fontWeight: 600, color: '#c5221f', marginBottom: 4 }}>调用错误</div>
                               <pre style={{
                                 margin: 0, padding: 10, background: '#fff', borderRadius: 6,
                                 fontSize: 11, color: '#c5221f', whiteSpace: 'pre-wrap', wordBreak: 'break-word',

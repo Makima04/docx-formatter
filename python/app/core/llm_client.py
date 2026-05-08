@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 class LLMClient:
     def __init__(self, api_key: str, base_url: str = "https://api.openai.com/v1",
-                 model: str = "gpt-4o-mini", timeout: float = 30.0):
+                 model: str = "gpt-4o-mini", timeout: float = 60.0):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -43,7 +43,13 @@ class LLMClient:
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                content = data["choices"][0]["message"]["content"]
+                message = data["choices"][0]["message"]
+                content = message.get("content", "")
+                # Some models (DeepSeek R1) return reasoning_content separately;
+                # prefer content, fall back to reasoning_content if content is empty
+                reasoning = message.get("reasoning_content", "")
+                if not content.strip() and reasoning:
+                    content = reasoning
                 if not content or not content.strip():
                     raise ValueError("LLM returned empty content")
                 latency_ms = int((time.perf_counter() - start) * 1000)
@@ -51,14 +57,19 @@ class LLMClient:
                 return content
         except Exception as e:
             latency_ms = int((time.perf_counter() - start) * 1000)
-            insert_llm_log(task_id, call_type, self.model, prompt, "", "failed", str(e), latency_ms)
+            error_msg = str(e) or type(e).__name__
+            insert_llm_log(task_id, call_type, self.model, prompt, "", "failed", error_msg, latency_ms)
             raise
 
     async def classify_paragraphs(self, prompt: str, task_id: Optional[str] = None) -> str:
         # Most providers handle JSON-instruction prompts fine without json_object format.
         # json_object format is unreliable with many providers (they return mixed content).
-        json_prompt = prompt + "\n\n请严格输出合法 JSON 数组，不要包含任何其他文本或 markdown 代码块标记。"
-        return await self.chat(json_prompt, temperature=0.05, use_json_format=False,
+        system = (
+            "你是一个严格的JSON输出助手。你的回复必须是纯JSON数组，不包含任何解释、分析、"
+            "推理过程、markdown标记或其他文本。禁止输出任何非JSON内容。只输出JSON数组。"
+        )
+        json_prompt = prompt + "\n\n重要：只输出JSON数组。禁止输出任何解释、分析、推理或markdown。只输出数组本身。"
+        return await self.chat(json_prompt, system=system, temperature=0.0, use_json_format=False,
                                call_type="classify", task_id=task_id)
 
 

@@ -276,7 +276,8 @@ def build_llm_classification_prompt(paragraphs: list[dict], indices: list[int]) 
 
     return f"""你是文档结构分析专家。判断每个标记了 ? 的段落类型。
 
-类型：heading1, heading2, heading3, body, caption_figure, caption_table, reference, abstract, keywords, quote, list_item, cover, appendix, formula
+类型：heading1, heading2, heading3, body, caption_figure, caption_table, reference, abstract, keywords, quote, list_item, cover, appendix, formula, unknown
+（如果无法确定类型请使用 unknown）
 
 严格输出 JSON 数组：[{{"index": 序号, "type": "类型", "confidence": 0.0-1.0}}]
 只输出标记了 ? 的段落，未标记的不要出现在结果中。
@@ -285,56 +286,141 @@ def build_llm_classification_prompt(paragraphs: list[dict], indices: list[int]) 
 {chr(10).join(lines)}"""
 
 
-def parse_llm_response(response: str) -> list[dict]:
+def parse_llm_response(response: str) -> tuple[list[dict], Optional[str]]:
+    """Parse LLM classification response. Returns (results, error_reason).
+
+    results: list of classification dicts (empty on failure)
+    error_reason: None if successful, otherwise describes why parsing failed
+    """
+    if not response or not response.strip():
+        return [], "LLM returned empty response"
+
+    json_str = response.strip()
+
+    # ── Strategy 1: Direct JSON parse ──
+    # Try to parse the whole response as JSON first
     try:
-        json_str = response.strip()
-        if json_str.startswith("```"):
-            json_str = re.sub(r'^```(?:json)?\s*', '', json_str)
-            json_str = re.sub(r'\s*```$', '', json_str)
-        # Some LLMs return JSON mixed with natural language; extract the JSON part
-        if not json_str.startswith('[') and not json_str.startswith('{'):
-            bracket = json_str.find('[')
-            brace = json_str.find('{')
-            if bracket >= 0 and (brace < 0 or bracket < brace):
-                json_str = json_str[bracket:]
-            elif brace >= 0:
-                json_str = json_str[brace:]
-        # Also handle trailing non-JSON text after a valid JSON array/object
-        for end_char, start_char in [('[', ']'), ('{', '}')]:
-            start = json_str.find(end_char)
-            if start < 0:
-                continue
-            depth = 0
-            in_string = False
-            escape_next = False
-            for i in range(start, len(json_str)):
-                c = json_str[i]
-                if escape_next:
-                    escape_next = False
-                    continue
-                if c == '\\' and in_string:
-                    escape_next = True
-                    continue
-                if c == '"' and not escape_next:
-                    in_string = not in_string
-                    continue
-                if in_string:
-                    continue
-                if c == end_char:
-                    depth += 1
-                elif c == start_char:
-                    depth -= 1
-                    if depth == 0:
-                        json_str = json_str[start:i + 1]
-                        break
-            break
         results = json.loads(json_str)
+        if isinstance(results, list):
+            valid = _filter_valid_types(results)
+            if valid:
+                return valid, None
+            return [], "JSON array contained no valid paragraph types"
+        elif isinstance(results, dict) and "classifications" in results:
+            valid = _filter_valid_types(results["classifications"])
+            if valid:
+                return valid, None
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # ── Strategy 2: Extract JSON from code blocks ──
+    for pattern in [r'```(?:json)?\s*([\[\{].*?[\]\}])\s*```', r'```\s*([\[\{].*?[\]\}])\s*```']:
+        m = re.search(pattern, json_str, re.DOTALL)
+        if m:
+            try:
+                results = json.loads(m.group(1))
+                if isinstance(results, list):
+                    valid = _filter_valid_types(results)
+                    if valid:
+                        return valid, None
+                elif isinstance(results, dict) and "classifications" in results:
+                    valid = _filter_valid_types(results["classifications"])
+                    if valid:
+                        return valid, None
+            except (json.JSONDecodeError, ValueError):
+                continue
+
+    # ── Strategy 3: Find JSON array in the text ──
+    # Look for the outermost JSON array using bracket matching
+    for start_char, end_char in [('[', ']'), ('{', '}')]:
+        start = json_str.find(start_char)
+        if start < 0:
+            continue
+        depth = 0
+        in_string = False
+        escape_next = False
+        for i in range(start, len(json_str)):
+            c = json_str[i]
+            if escape_next:
+                escape_next = False
+                continue
+            if c == '\\' and in_string:
+                escape_next = True
+                continue
+            if c == '"' and not escape_next:
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if c == start_char:
+                depth += 1
+            elif c == end_char:
+                depth -= 1
+                if depth == 0:
+                    candidate = json_str[start:i + 1]
+                    try:
+                        results = json.loads(candidate)
+                        if isinstance(results, list):
+                            valid = _filter_valid_types(results)
+                            if valid:
+                                return valid, None
+                        elif isinstance(results, dict):
+                            if "classifications" in results:
+                                valid = _filter_valid_types(results["classifications"])
+                                if valid:
+                                    return valid, None
+                            # Maybe it's a single object, wrap in list
+                            if "index" in results and "type" in results:
+                                valid = _filter_valid_types([results])
+                                if valid:
+                                    return valid, None
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+                    break
+
+    # ── Strategy 4: Try to find individual JSON objects with regex ──
+    obj_pattern = re.compile(r'\{\s*"index"\s*:\s*(\d+)\s*,\s*"type"\s*:\s*"(\w+)"[^}]*\}')
+    matches = obj_pattern.findall(json_str)
+    if matches:
         valid_types = {"heading1","heading2","heading3","body","body_indent",
                        "caption_figure","caption_table","reference","abstract",
                        "keywords","quote","list_item","code","toc",
                        "cover","appendix","formula","unknown"}
-        return [{"index": i["index"], "type": i["type"], "confidence": float(i.get("confidence", 0.6))}
-                for i in results if i.get("type") in valid_types]
-    except Exception as e:
-        logger.warning(f"Failed to parse LLM response: {e}")
-        return []
+        results = []
+        for m in matches:
+            idx, ptype = int(m[0]), m[1]
+            if ptype in valid_types:
+                results.append({"index": idx, "type": ptype, "confidence": 0.6})
+        if results:
+            return results, None
+
+    preview = response[:300]
+    return [], f"无法从LLM响应中解析JSON (响应长度={len(response)}): {preview}"
+
+
+def _filter_valid_types(results: list[dict]) -> list[dict]:
+    """Filter results to only include valid paragraph types."""
+    valid_types = {"heading1","heading2","heading3","body","body_indent",
+                   "caption_figure","caption_table","reference","abstract",
+                   "keywords","quote","list_item","code","toc",
+                   "cover","appendix","formula"}
+    # "unknown" is valid in prompt but we skip it — keep rule-based classification
+    filtered = []
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        ptype = item.get("type")
+        if ptype not in valid_types:
+            continue
+        try:
+            idx = int(item.get("index", -1))
+        except (TypeError, ValueError):
+            continue
+        if idx < 0:
+            continue
+        try:
+            conf = float(item.get("confidence", 0.6))
+        except (TypeError, ValueError):
+            conf = 0.6
+        filtered.append({"index": idx, "type": ptype, "confidence": conf})
+    return filtered
