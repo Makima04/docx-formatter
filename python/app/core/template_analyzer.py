@@ -225,6 +225,13 @@ class TemplateAnalyzer:
             else:
                 ls_pt = _pt(pf.line_spacing)
 
+            # Detect pageBreakBefore from the style definition
+            pbb = False
+            try:
+                pbb = bool(pf.page_break_before)
+            except Exception:
+                pass
+
             styles.append({
                 "name": style.name,
                 "style_id": style.style_id,
@@ -242,6 +249,7 @@ class TemplateAnalyzer:
                 "line_spacing_pt": ls_pt,
                 "line_spacing_multiple": ls_mult,
                 "line_spacing_rule": ls_rule,
+                "page_break_before": pbb,
             })
 
         return styles
@@ -325,7 +333,7 @@ class TemplateAnalyzer:
         for sdef in style_defs:
             role = STYLE_NAME_TO_ROLE.get(sdef["name"])
             if role and role not in style_map:
-                style_map[role] = {
+                entry = {
                     "source": "style_name",
                     "style_name": sdef["name"],
                     **{k: sdef[k] for k in (
@@ -335,6 +343,9 @@ class TemplateAnalyzer:
                         "line_spacing_pt", "line_spacing_multiple", "line_spacing_rule",
                     )},
                 }
+                if sdef.get("page_break_before"):
+                    entry["page_break_before"] = True
+                style_map[role] = entry
 
         # 2) By content patterns
         content_matches: dict[str, list[dict]] = defaultdict(list)
@@ -462,6 +473,7 @@ class TemplateAnalyzer:
             "line_spacing_pt": m.get("line_spacing_pt"),
             "line_spacing_multiple": m.get("line_spacing_multiple") or d_ls_mult,
             "line_spacing_rule": m.get("line_spacing_rule") or "multiple",
+            "page_break_before": m.get("page_break_before") or False,
         }
 
     # ── Quality rating ─────────────────────────────────────────────

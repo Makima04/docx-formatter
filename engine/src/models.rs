@@ -239,6 +239,8 @@ pub struct ParagraphStyle {
     pub line_spacing_pt: Option<f64>,
     pub line_spacing_multiple: Option<f64>,
     pub line_spacing_rule: String,
+    #[serde(default)]
+    pub page_break_before: bool,
 }
 
 impl Default for ParagraphStyle {
@@ -256,6 +258,7 @@ impl Default for ParagraphStyle {
             line_spacing_pt: None,
             line_spacing_multiple: Some(1.5),
             line_spacing_rule: "multiple".to_string(),
+            page_break_before: false,
         }
     }
 }

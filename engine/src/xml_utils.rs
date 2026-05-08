@@ -171,6 +171,7 @@ fn style_def_xml(
     };
 
     let keep_next_xml = if keep_next { "<w:keepNext/>" } else { "" };
+    let page_break_before_xml = if style.page_break_before { "<w:pageBreakBefore/>" } else { "" };
 
     format!(
         r#"
@@ -178,6 +179,7 @@ fn style_def_xml(
     <w:name w:val="{style_name}"/>
 {based_on_xml}    <w:pPr>
         {keep_next_xml}
+        {page_break_before_xml}
         <w:jc w:val="{align}"/>
         <w:spacing {spacing}/>
         {indent_xml}
