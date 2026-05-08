@@ -10,13 +10,24 @@ const R_NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relati
 const WP_NS: &str = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
 const A_NS: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
 const PIC_NS: &str = "http://schemas.openxmlformats.org/drawingml/2006/picture";
+const MC_NS: &str = "http://schemas.openxmlformats.org/markup-compatibility/2006";
 
 fn cm_to_emu(cm: f64) -> i64 { (cm * 360000.0).round() as i64 }
 fn pt_to_half_points(pt: f64) -> i64 { (pt * 2.0).round() as i64 }
 fn pt_to_twips(pt: f64) -> i64 { (pt * 20.0).round() as i64 }
 fn pt_to_eighths(pt: f64) -> i64 { (pt * 8.0).round() as i64 }
 
-pub fn content_types_xml() -> String {
+pub fn content_types_xml(images: &[ExtractedImage]) -> String {
+    let mut overrides = String::new();
+    for img in images {
+        // Use the content_type from the original document
+        let part_name = img.media_path.strip_prefix("word/").unwrap_or(&img.media_path);
+        overrides.push_str(&format!(
+            r#"    <Override PartName="/word/{part_name}" ContentType="{ct}"/>"#,
+            ct = img.content_type
+        ));
+        overrides.push('\n');
+    }
     format!(r#"{XML_HEADER}
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
     <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
@@ -35,7 +46,7 @@ pub fn content_types_xml() -> String {
     <Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>
     <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
     <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
-</Types>"#)
+{overrides}</Types>"#)
 }
 
 pub fn root_rels_xml() -> String {
@@ -47,7 +58,7 @@ pub fn root_rels_xml() -> String {
 </Relationships>"#)
 }
 
-pub fn document_rels_xml(image_rids: &[String]) -> String {
+pub fn document_rels_xml(images: &[ExtractedImage]) -> String {
     let mut entries = vec![
         format!(r#"    <Relationship Id="rId1" Type="{R_NS}/styles" Target="styles.xml"/>"#),
         format!(r#"    <Relationship Id="rId2" Type="{R_NS}/numbering" Target="numbering.xml"/>"#),
@@ -55,11 +66,12 @@ pub fn document_rels_xml(image_rids: &[String]) -> String {
         format!(r#"    <Relationship Id="rIdFooter1" Type="{R_NS}/footer" Target="footer1.xml"/>"#),
         format!(r#"    <Relationship Id="rIdHeader1" Type="{R_NS}/header" Target="header1.xml"/>"#),
     ];
-    for (i, _) in image_rids.iter().enumerate() {
-        let rid = format!("rId{}", 100 + i);
+    for img in images {
+        let rid = format!("rId{}", 100 + img.index);
+        // Strip "word/" prefix from media_path — the rels Target is relative to word/
+        let target = img.media_path.strip_prefix("word/").unwrap_or(&img.media_path);
         entries.push(format!(
-            r#"    <Relationship Id="{rid}" Type="{R_NS}/image" Target="media/image{}.png" />"#,
-            i + 1
+            r#"    <Relationship Id="{rid}" Type="{R_NS}/image" Target="{target}"/>"#
         ));
     }
     format!(
@@ -315,7 +327,7 @@ pub fn inject_section_break(para_xml: &str, sect_pr_xml: &str) -> String {
 pub fn document_xml(_page: &PageStyle, body_xml: &str, section_xml: &str) -> String {
     format!(
         r#"{XML_HEADER}
-<w:document xmlns:w="{W_NS}" xmlns:r="{R_NS}" xmlns:wp="{WP_NS}" xmlns:a="{A_NS}" xmlns:pic="{PIC_NS}">
+<w:document xmlns:w="{W_NS}" xmlns:r="{R_NS}" xmlns:mc="{MC_NS}" xmlns:wp="{WP_NS}" xmlns:a="{A_NS}" xmlns:pic="{PIC_NS}" mc:Ignorable="wp a pic">
 <w:body>
 {body_xml}
 {section_xml}
@@ -486,7 +498,7 @@ pub fn paragraph_xml_with_style(text: &str, style_id: &str, style: &ParagraphSty
     format!(
         r#"<w:p>
     <w:pPr>{ppr_parts}</w:pPr>
-    {rpr_parts}<w:r><w:t xml:space="preserve">{escaped_text}</w:t></w:r>
+    <w:r>{rpr_parts}<w:t xml:space="preserve">{escaped_text}</w:t></w:r>
 </w:p>"#
     )
 }

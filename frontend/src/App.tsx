@@ -8,6 +8,7 @@ import Batch from './pages/Batch';
 import History from './pages/History';
 import Admin from './pages/Admin';
 import { useAuth } from './hooks/useAuth';
+import { FormatSessionProvider } from './hooks/useFormatSession';
 import { checkCode } from './api/client';
 
 function MainApp() {
@@ -48,14 +49,16 @@ function MainApp() {
   }
 
   return (
-    <Layout code={code} remaining={remaining} onLogout={handleLogout}>
-      <Routes>
-        <Route path="/" element={<Home code={code} onQuotaChange={refreshQuota} />} />
-        <Route path="/batch" element={<Batch code={code} onQuotaChange={refreshQuota} />} />
-        <Route path="/templates" element={<Templates />} />
-        <Route path="/history" element={<History />} />
-      </Routes>
-    </Layout>
+    <FormatSessionProvider>
+      <Layout code={code} remaining={remaining} onLogout={handleLogout}>
+        <Routes>
+          <Route path="/" element={<Home code={code} onQuotaChange={refreshQuota} />} />
+          <Route path="/batch" element={<Batch code={code} onQuotaChange={refreshQuota} />} />
+          <Route path="/templates" element={<Templates />} />
+          <Route path="/history" element={<History />} />
+        </Routes>
+      </Layout>
+    </FormatSessionProvider>
   );
 }
 

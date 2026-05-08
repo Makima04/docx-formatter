@@ -403,8 +403,7 @@ def _filter_valid_types(results: list[dict]) -> list[dict]:
     valid_types = {"heading1","heading2","heading3","body","body_indent",
                    "caption_figure","caption_table","reference","abstract",
                    "keywords","quote","list_item","code","toc",
-                   "cover","appendix","formula"}
-    # "unknown" is valid in prompt but we skip it — keep rule-based classification
+                   "cover","appendix","formula","unknown"}
     filtered = []
     for item in results:
         if not isinstance(item, dict):

@@ -208,6 +208,9 @@ async def run_format_pipeline(
         if llm_client and settings.llm_enable_classification:
             uncertain = get_uncertain_indices(doc['paragraphs'])
             if uncertain:
+                # Filter out near-empty paragraphs — nothing for the LLM to classify
+                uncertain = [i for i in uncertain if len(doc['paragraphs'][i].get('text', '').strip()) >= 2]
+            if uncertain:
                 concurrent = int(get_setting("llm_concurrent_requests", str(settings.llm_concurrent_requests)))
                 chunk_size = 5
                 chunks = [uncertain[i:i + chunk_size] for i in range(0, len(uncertain), chunk_size)]

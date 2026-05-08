@@ -1,13 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import FileUpload from '../components/FileUpload';
 import ProgressBar from '../components/ProgressBar';
 import ClassificationTable from '../components/ClassificationTable';
 import DocxPreview from '../components/DocxPreview';
-import { formatDocument, downloadUrl } from '../api/client';
+import { formatDocument, downloadUrl, pollTask } from '../api/client';
 import { listTemplates } from '../api/client';
-import { useTaskPolling } from '../hooks/useTaskPolling';
+import { useFormatSession } from '../hooks/useFormatSession';
 import { useHistory } from '../hooks/useHistory';
 import type { TemplateItem } from '../types';
+
+const FAST_INTERVAL = 800;
+const NORMAL_INTERVAL = 2000;
+const FAST_DURATION_MS = 30_000;
 
 interface Props {
   code: string;
@@ -17,51 +21,103 @@ interface Props {
 type TemplateMode = 'builtin' | 'upload' | 'nl';
 
 export default function Home({ code, onQuotaChange }: Props) {
-  const [file, setFile] = useState<File | null>(null);
-  const [templates, setTemplates] = useState<TemplateItem[]>([]);
-  const [tplMode, setTplMode] = useState<TemplateMode>('builtin');
-  const [tplId, setTplId] = useState<number | undefined>();
-  const [tplFile, setTplFile] = useState<File | null>(null);
-  const [tplDesc, setTplDesc] = useState('');
-  const [error, setError] = useState('');
-  const [done, setDone] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
+  const {
+    file, setFile,
+    tplMode, setTplMode,
+    tplId, setTplId,
+    tplFile, setTplFile,
+    tplDesc, setTplDesc,
+    task, setTask,
+    polling, setPolling,
+    startedAt, setStartedAt,
+    done, setDone,
+    error, setError,
+    showPreview, setShowPreview,
+    reset,
+  } = useFormatSession();
 
-  const { task, polling, startedAt, start } = useTaskPolling();
+  const [templates, setTemplates] = React.useState<TemplateItem[]>([]);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startedAtRef = useRef<number>(0);
+  const intervalRef = useRef(FAST_INTERVAL);
   const history = useHistory();
 
   useEffect(() => {
     listTemplates().then(setTemplates).catch(() => {});
   }, []);
 
-  useEffect(() => {
-    if (task?.status === 'completed') {
-      setDone(true);
-      onQuotaChange();
-      history.add({
-        id: task.task_id,
-        filename: file?.name || '',
-        template: tplId ? String(tplId) : 'default',
-        status: 'completed',
-        timestamp: Date.now(),
-        classification_result: task.classification_result || undefined,
-      });
-    } else if (task?.status === 'failed') {
-      setError(task.message);
-      history.add({
-        id: task.task_id,
-        filename: file?.name || '',
-        template: tplId ? String(tplId) : 'default',
-        status: 'failed',
-        timestamp: Date.now(),
-      });
+  const stopPolling = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
     }
-  }, [task?.status]);
+    setPolling(false);
+  }, [setPolling]);
+
+  useEffect(() => {
+    return () => stopPolling();
+  }, [stopPolling]);
+
+  const startPolling = useCallback((taskId: string) => {
+    setPolling(true);
+    setTask(null);
+    setDone(false);
+    setError('');
+    const now = Date.now();
+    startedAtRef.current = now;
+    setStartedAt(now);
+
+    const poll = async () => {
+      try {
+        const data = await pollTask(taskId);
+        setTask(data);
+
+        if (data.status === 'completed') {
+          stopPolling();
+          setDone(true);
+          onQuotaChange();
+          history.add({
+            id: data.task_id,
+            filename: file?.name || '',
+            template: tplId ? String(tplId) : 'default',
+            status: 'completed',
+            timestamp: Date.now(),
+            classification_result: data.classification_result || undefined,
+          });
+        } else if (data.status === 'failed') {
+          stopPolling();
+          setError(data.message || '处理失败');
+          history.add({
+            id: data.task_id,
+            filename: file?.name || '',
+            template: tplId ? String(tplId) : 'default',
+            status: 'failed',
+            timestamp: Date.now(),
+          });
+          return;
+        }
+
+        const elapsed = Date.now() - startedAtRef.current;
+        const nextInterval = elapsed < FAST_DURATION_MS ? FAST_INTERVAL : NORMAL_INTERVAL;
+        if (nextInterval !== intervalRef.current) {
+          intervalRef.current = nextInterval;
+          if (timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = setInterval(poll, nextInterval);
+          }
+        }
+      } catch {
+        // ignore transient errors
+      }
+    };
+
+    poll();
+    timerRef.current = setInterval(poll, FAST_INTERVAL);
+  }, [setPolling, setTask, setDone, setError, setStartedAt, stopPolling, onQuotaChange, file, tplId, history]);
 
   const handleSubmit = async () => {
     if (!file) return;
     setError('');
-    setDone(false);
 
     try {
       const opts: Record<string, unknown> = {};
@@ -70,19 +126,14 @@ export default function Home({ code, onQuotaChange }: Props) {
       if (tplMode === 'nl' && tplDesc.trim()) opts.template_description = tplDesc.trim();
 
       const { task_id } = await formatDocument(code, file, opts as Parameters<typeof formatDocument>[2]);
-      start(task_id);
+      startPolling(task_id);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '上传失败');
     }
   };
 
   const handleRestart = () => {
-    setFile(null);
-    setTplFile(null);
-    setTplDesc('');
-    setError('');
-    setDone(false);
-    setShowPreview(false);
+    reset();
   };
 
   return (

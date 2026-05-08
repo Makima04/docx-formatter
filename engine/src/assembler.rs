@@ -23,16 +23,13 @@ pub fn assemble_docx(
     let options = FileOptions::default().compression_method(CompressionMethod::Stored);
 
     zip.start_file("[Content_Types].xml", options).map_err(|e| e.to_string())?;
-    zip.write_all(xml_utils::content_types_xml().as_bytes()).map_err(|e| e.to_string())?;
+    zip.write_all(xml_utils::content_types_xml(&extracted.images).as_bytes()).map_err(|e| e.to_string())?;
 
     zip.start_file("_rels/.rels", options).map_err(|e| e.to_string())?;
     zip.write_all(xml_utils::root_rels_xml().as_bytes()).map_err(|e| e.to_string())?;
 
-    let image_rids: Vec<String> = extracted.images.iter()
-        .map(|i| format!("rId{}", 100 + i.index))
-        .collect();
     zip.start_file("word/_rels/document.xml.rels", options).map_err(|e| e.to_string())?;
-    zip.write_all(xml_utils::document_rels_xml(&image_rids).as_bytes()).map_err(|e| e.to_string())?;
+    zip.write_all(xml_utils::document_rels_xml(&extracted.images).as_bytes()).map_err(|e| e.to_string())?;
 
     zip.start_file("word/styles.xml", options).map_err(|e| e.to_string())?;
     zip.write_all(xml_utils::styles_xml_from_template(template).as_bytes()).map_err(|e| e.to_string())?;
@@ -273,8 +270,8 @@ pub fn assemble_docx(
 
     for img in &extracted.images {
         if let Some(ref blob) = img.blob {
-            let media_name = format!("word/{}", img.media_path);
-            zip.start_file(media_name, options).map_err(|e| e.to_string())?;
+            // media_path already includes "word/" prefix from the parser
+            zip.start_file(&img.media_path, options).map_err(|e| e.to_string())?;
             zip.write_all(blob).map_err(|e| e.to_string())?;
         }
     }
