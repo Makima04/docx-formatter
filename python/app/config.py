@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4o-mini"
     llm_enable_classification: bool = True
     llm_enable_template_parse: bool = True
+    llm_concurrent_requests: int = 3
 
     admin_api_key: Optional[str] = None
 

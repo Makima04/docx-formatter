@@ -106,6 +106,7 @@ export default function Admin() {
   const [llmApiKey, setLlmApiKey] = useState('');
   const [llmBaseUrl, setLlmBaseUrl] = useState('');
   const [llmModel, setLlmModel] = useState('');
+  const [llmConcurrent, setLlmConcurrent] = useState(3);
   const [llmModels, setLlmModels] = useState<string[]>([]);
   const [llmLoading, setLlmLoading] = useState(false);
   const [llmSaving, setLlmSaving] = useState(false);
@@ -152,6 +153,7 @@ export default function Admin() {
     getLLMConfig(adminKey).then((cfg) => {
       setLlmBaseUrl(cfg.base_url);
       setLlmModel(cfg.model);
+      setLlmConcurrent(cfg.concurrent_requests ?? 3);
       // api_key comes masked; leave input empty so admin can type a new one
       setLlmApiKey('');
     }).catch(() => {});
@@ -276,10 +278,11 @@ export default function Admin() {
     setLlmMsgType('');
     setLlmSaving(true);
     try {
-      const data: Record<string, string> = {};
+      const data: Record<string, string | number> = {};
       if (llmApiKey) data.api_key = llmApiKey;
       if (llmBaseUrl) data.base_url = llmBaseUrl;
       if (llmModel) data.model = llmModel;
+      data.concurrent_requests = Math.max(1, Math.min(10, llmConcurrent));
       await updateLLMConfig(adminKey, data);
       setLlmMsg('LLM 配置已保存，下次任务将使用新配置');
       setLlmMsgType('ok');
@@ -693,6 +696,18 @@ export default function Admin() {
                 style={inputStyle}
               />
             )}
+          </div>
+          <div style={{ flex: '0 0 120px' }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#444' }}>并发请求数</label>
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={llmConcurrent}
+              onChange={(e) => setLlmConcurrent(parseInt(e.target.value) || 1)}
+              style={inputStyle}
+            />
+            <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>AI 识别时的最大并发数</div>
           </div>
           <div style={{ flex: '0 0 auto', display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
             <button onClick={handleTestConnection} disabled={llmTesting} style={{ ...btnPrimary, background: '#34a853' }}>

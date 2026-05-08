@@ -1,6 +1,7 @@
 """Pipeline orchestrator — ties together Rust parse → Python classify → Rust assemble."""
 
 from __future__ import annotations
+import asyncio
 import gc
 import json
 import logging
@@ -14,6 +15,7 @@ import docx_fmt_core  # Rust extension
 
 from app.models import TaskInfo, TaskStatus
 from app.config import settings
+from app.db import get_setting
 from app.core.classifier import (
     classify_paragraphs, get_uncertain_indices,
     build_llm_classification_prompt, parse_llm_response,
@@ -206,19 +208,34 @@ async def run_format_pipeline(
         if llm_client and settings.llm_enable_classification:
             uncertain = get_uncertain_indices(doc['paragraphs'])
             if uncertain:
+                concurrent = int(get_setting("llm_concurrent_requests", str(settings.llm_concurrent_requests)))
+                chunk_size = 5
+                chunks = [uncertain[i:i + chunk_size] for i in range(0, len(uncertain), chunk_size)]
                 update_task(task_id, progress=50,
-                            message=f"正在用 AI 识别 {len(uncertain)} 个不确定段落...")
-                logger.info(f"LLM classifying {len(uncertain)} uncertain paragraphs")
-                prompt = build_llm_classification_prompt(doc['paragraphs'], uncertain)
-                try:
-                    response = await llm_client.classify_paragraphs(prompt, task_id=task_id)
-                    updates = parse_llm_response(response)
-                    if updates:
-                        doc_json = json.dumps(doc, ensure_ascii=False)
-                        doc_json = docx_fmt_core.update_classifications(doc_json, json.dumps(updates))
-                        doc = json.loads(doc_json)
-                except Exception as e:
-                    logger.error(f"LLM classification failed: {e}")
+                            message=f"正在用 AI 识别 {len(uncertain)} 个不确定段落（{len(chunks)} 批，并发 {concurrent}）...")
+                logger.info(f"LLM classifying {len(uncertain)} uncertain paragraphs in {len(chunks)} chunks (concurrency={concurrent})")
+
+                semaphore = asyncio.Semaphore(concurrent)
+
+                async def classify_chunk(chunk: list[int]) -> list[dict]:
+                    async with semaphore:
+                        prompt = build_llm_classification_prompt(doc['paragraphs'], chunk)
+                        try:
+                            response = await llm_client.classify_paragraphs(prompt, task_id=task_id)
+                            return parse_llm_response(response)
+                        except Exception as e:
+                            logger.error(f"LLM chunk failed: {e}")
+                            return []
+
+                results = await asyncio.gather(*[classify_chunk(c) for c in chunks])
+                all_updates: list[dict] = []
+                for r in results:
+                    all_updates.extend(r)
+
+                if all_updates:
+                    doc_json = json.dumps(doc, ensure_ascii=False)
+                    doc_json = docx_fmt_core.update_classifications(doc_json, json.dumps(all_updates))
+                    doc = json.loads(doc_json)
 
         updates = [{"index": i, "type": p['paragraph_type'], "confidence": p['confidence']}
                     for i, p in enumerate(doc['paragraphs'])]

@@ -191,7 +191,7 @@ def classify_one(text: str, font_size: Optional[float], bold: bool,
                 best_score = sim
                 best_role = role
 
-        if best_role and best_score >= 0.75:
+        if best_role and best_score >= 0.80:
             return best_role, min(best_score, 0.90)
 
     # ── Step 5: Heuristic scoring (fallback) ──────────────────────
@@ -254,17 +254,32 @@ def get_uncertain_indices(paragraphs: list[dict], threshold: float = 0.80) -> li
 
 
 def build_llm_classification_prompt(paragraphs: list[dict], indices: list[int]) -> str:
+    """Build a prompt that includes 1 neighbor before/after each uncertain paragraph.
+
+    Neighbors are included as context but NOT marked with '?' — the LLM should only
+    classify the paragraphs with '?' markers.
+    """
     lines = []
     for idx in indices:
-        p = paragraphs[idx]
-        text = p.get('text', '')[:200]
-        lines.append(f"[{idx}] {text}")
+        # Previous neighbor (1 paragraph)
+        if idx > 0:
+            prev_text = paragraphs[idx - 1].get('text', '')[:120]
+            lines.append(f"[{idx - 1}] {prev_text}")
+        # Current uncertain paragraph
+        text = paragraphs[idx].get('text', '')[:200]
+        lines.append(f"[{idx}] ? {text}")
+        # Next neighbor (1 paragraph)
+        if idx < len(paragraphs) - 1:
+            next_text = paragraphs[idx + 1].get('text', '')[:120]
+            lines.append(f"[{idx + 1}] {next_text}")
+        lines.append("")  # blank separator
 
-    return f"""你是文档结构分析专家。判断以下段落的类型。
+    return f"""你是文档结构分析专家。判断每个标记了 ? 的段落类型。
 
 类型：heading1, heading2, heading3, body, caption_figure, caption_table, reference, abstract, keywords, quote, list_item, cover, appendix, formula
 
 严格输出 JSON 数组：[{{"index": 序号, "type": "类型", "confidence": 0.0-1.0}}]
+只输出标记了 ? 的段落，未标记的不要出现在结果中。
 
 段落列表：
 {chr(10).join(lines)}"""

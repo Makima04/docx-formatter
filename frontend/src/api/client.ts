@@ -223,6 +223,7 @@ export interface LLMConfig {
   api_key: string;
   base_url: string;
   model: string;
+  concurrent_requests: number;
 }
 
 export async function getLLMConfig(adminKey: string): Promise<LLMConfig> {
@@ -238,7 +239,7 @@ export async function getLLMConfig(adminKey: string): Promise<LLMConfig> {
 
 export async function updateLLMConfig(
   adminKey: string,
-  data: { api_key?: string; base_url?: string; model?: string },
+  data: { api_key?: string; base_url?: string; model?: string; concurrent_requests?: number },
 ): Promise<void> {
   const res = await fetch(`${BASE}/api/admin/settings/llm`, {
     method: 'PUT',

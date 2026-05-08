@@ -31,6 +31,7 @@ class LLMConfigUpdate(BaseModel):
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     model: Optional[str] = None
+    concurrent_requests: Optional[int] = None
 
 
 @router.get("/settings/llm")
@@ -39,10 +40,12 @@ async def get_llm_config(_: None = Depends(verify_admin_key)):
     api_key = get_setting("llm_api_key", "")
     base_url = get_setting("llm_base_url", settings.llm_base_url)
     model = get_setting("llm_model", settings.llm_model)
+    concurrent = get_setting("llm_concurrent_requests", str(settings.llm_concurrent_requests))
     return {
         "api_key": api_key[:8] + "..." if len(api_key) > 8 else api_key,
         "base_url": base_url,
         "model": model,
+        "concurrent_requests": int(concurrent) if concurrent.isdigit() else settings.llm_concurrent_requests,
     }
 
 
@@ -58,6 +61,9 @@ async def update_llm_config(req: LLMConfigUpdate, _: None = Depends(verify_admin
         set_setting("llm_base_url", req.base_url)
     if req.model is not None:
         set_setting("llm_model", req.model)
+    if req.concurrent_requests is not None:
+        val = max(1, min(10, req.concurrent_requests))
+        set_setting("llm_concurrent_requests", str(val))
 
     # Reset the cached LLM client so next request picks up new config
     main_mod._llm_client = None
