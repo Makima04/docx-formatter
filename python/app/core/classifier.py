@@ -249,7 +249,7 @@ def classify_paragraphs(paragraphs: list[dict], style_map: Optional[dict] = None
     return paragraphs
 
 
-def get_uncertain_indices(paragraphs: list[dict], threshold: float = 0.70) -> list[int]:
+def get_uncertain_indices(paragraphs: list[dict], threshold: float = 0.80) -> list[int]:
     return [i for i, p in enumerate(paragraphs) if p.get('confidence', 0) < threshold]
 
 

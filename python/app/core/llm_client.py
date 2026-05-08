@@ -3,10 +3,12 @@
 from __future__ import annotations
 import json
 import re
+import time
 import logging
 from typing import Optional
 
 import httpx
+from app.db import insert_llm_log
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +22,8 @@ class LLMClient:
         self.timeout = timeout
 
     async def chat(self, prompt: str, system: str = "", temperature: float = 0.1,
-                   use_json_format: bool = True) -> str:
+                   use_json_format: bool = True,
+                   call_type: str = "chat", task_id: Optional[str] = None) -> str:
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -30,24 +33,33 @@ class LLMClient:
         if use_json_format:
             payload["response_format"] = {"type": "json_object"}
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(
-                f"{self.base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
-                json=payload,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            content = data["choices"][0]["message"]["content"]
-            if not content or not content.strip():
-                raise ValueError("LLM returned empty content")
-            return content
+        start = time.perf_counter()
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                resp = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+                    json=payload,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                content = data["choices"][0]["message"]["content"]
+                if not content or not content.strip():
+                    raise ValueError("LLM returned empty content")
+                latency_ms = int((time.perf_counter() - start) * 1000)
+                insert_llm_log(task_id, call_type, self.model, prompt, content, "success", None, latency_ms)
+                return content
+        except Exception as e:
+            latency_ms = int((time.perf_counter() - start) * 1000)
+            insert_llm_log(task_id, call_type, self.model, prompt, "", "failed", str(e), latency_ms)
+            raise
 
-    async def classify_paragraphs(self, prompt: str) -> str:
+    async def classify_paragraphs(self, prompt: str, task_id: Optional[str] = None) -> str:
         # Most providers handle JSON-instruction prompts fine without json_object format.
         # json_object format is unreliable with many providers (they return mixed content).
         json_prompt = prompt + "\n\n请严格输出合法 JSON 数组，不要包含任何其他文本或 markdown 代码块标记。"
-        return await self.chat(json_prompt, temperature=0.05, use_json_format=False)
+        return await self.chat(json_prompt, temperature=0.05, use_json_format=False,
+                               call_type="classify", task_id=task_id)
 
 
 _TEMPLATE_PARSE_PROMPT = """你是文档排版专家。用户用自然语言描述了一个排版模板需求，请将其解析为结构化 JSON。

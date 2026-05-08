@@ -8,7 +8,9 @@ import {
   updateLLMConfig,
   listLLMModels,
   testLLMConnection,
+  getLLMLogs,
   type RedeemCodeItem,
+  type LLMLogItem,
 } from '../api/client';
 
 const ADMIN_KEY_STORAGE = 'docfmt_admin_key';
@@ -111,6 +113,11 @@ export default function Admin() {
   const [llmMsg, setLlmMsg] = useState('');
   const [llmMsgType, setLlmMsgType] = useState<'ok' | 'err' | ''>('');
 
+  // LLM call logs state
+  const [llmLogs, setLlmLogs] = useState<LLMLogItem[]>([]);
+  const [llmLogsLoading, setLlmLogsLoading] = useState(false);
+  const [expandedLogId, setExpandedLogId] = useState<number | null>(null);
+
   // Try restoring from localStorage
   useEffect(() => {
     const saved = localStorage.getItem(ADMIN_KEY_STORAGE);
@@ -149,6 +156,24 @@ export default function Admin() {
       setLlmApiKey('');
     }).catch(() => {});
   }, [loggedIn, adminKey]);
+
+  // Load LLM logs on login
+  const loadLLMLogs = useCallback(async () => {
+    if (!adminKey) return;
+    setLlmLogsLoading(true);
+    try {
+      const data = await getLLMLogs(adminKey, 50, 0);
+      setLlmLogs(data.logs);
+    } catch (e: unknown) {
+      console.error('Failed to load LLM logs', e);
+    } finally {
+      setLlmLogsLoading(false);
+    }
+  }, [adminKey]);
+
+  useEffect(() => {
+    if (loggedIn) loadLLMLogs();
+  }, [loggedIn, loadLLMLogs]);
 
   const handleLogin = async () => {
     setError('');
@@ -681,6 +706,108 @@ export default function Admin() {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* LLM Call Logs */}
+      <div style={cardStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 600, margin: 0, color: '#333' }}>LLM 调用记录</h3>
+          <button onClick={loadLLMLogs} disabled={llmLogsLoading} style={{ ...btnSmall, fontSize: 12 }}>
+            {llmLogsLoading ? '刷新中...' : '刷新'}
+          </button>
+        </div>
+        {llmLogs.length === 0 ? (
+          <p style={{ fontSize: 13, color: '#888' }}>暂无调用记录</p>
+        ) : (
+          <div style={{ maxHeight: 480, overflowY: 'auto' as const }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th style={{ ...thStyle, width: 60 }}>ID</th>
+                  <th style={{ ...thStyle, width: 90 }}>类型</th>
+                  <th style={{ ...thStyle, width: 120 }}>模型</th>
+                  <th style={{ ...thStyle, width: 70 }}>状态</th>
+                  <th style={{ ...thStyle, width: 80 }}>耗时(ms)</th>
+                  <th style={{ ...thStyle, width: 140 }}>时间</th>
+                  <th style={{ ...thStyle, width: 60 }}>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {llmLogs.map((log) => (
+                  <React.Fragment key={log.id}>
+                    <tr>
+                      <td style={tdStyle}>#{log.id}</td>
+                      <td style={tdStyle}>{log.call_type}</td>
+                      <td style={tdStyle}>{log.model}</td>
+                      <td style={tdStyle}>
+                        <span style={{
+                          color: log.status === 'success' ? '#137333' : '#c5221f',
+                          fontWeight: 600,
+                        }}>
+                          {log.status === 'success' ? '成功' : '失败'}
+                        </span>
+                      </td>
+                      <td style={tdStyle}>{log.latency_ms ?? '-'}</td>
+                      <td style={tdStyle}>{new Date(log.created_at).toLocaleString()}</td>
+                      <td style={tdStyle}>
+                        <button
+                          onClick={() => setExpandedLogId(expandedLogId === log.id ? null : log.id)}
+                          style={{ ...btnSmall, padding: '2px 8px', fontSize: 11 }}
+                        >
+                          {expandedLogId === log.id ? '收起' : '查看'}
+                        </button>
+                      </td>
+                    </tr>
+                    {expandedLogId === log.id && (
+                      <tr>
+                        <td colSpan={7} style={{ padding: '10px 12px', background: '#f8f9fa', borderBottom: '1px solid #e8eaed' }}>
+                          {log.task_id && (
+                            <div style={{ fontSize: 11, color: '#666', marginBottom: 6 }}>
+                              任务ID: {log.task_id}
+                            </div>
+                          )}
+                          <div style={{ marginBottom: 10 }}>
+                            <div style={{ fontSize: 11, fontWeight: 600, color: '#444', marginBottom: 4 }}>Prompt</div>
+                            <pre style={{
+                              margin: 0, padding: 10, background: '#fff', borderRadius: 6,
+                              fontSize: 11, color: '#333', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                              maxHeight: 200, overflowY: 'auto' as const, border: '1px solid #e8eaed',
+                            }}>
+                              {log.prompt}
+                            </pre>
+                          </div>
+                          {log.status === 'success' ? (
+                            <div>
+                              <div style={{ fontSize: 11, fontWeight: 600, color: '#444', marginBottom: 4 }}>Response</div>
+                              <pre style={{
+                                margin: 0, padding: 10, background: '#fff', borderRadius: 6,
+                                fontSize: 11, color: '#333', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                                maxHeight: 200, overflowY: 'auto' as const, border: '1px solid #e8eaed',
+                              }}>
+                                {log.response}
+                              </pre>
+                            </div>
+                          ) : (
+                            <div>
+                              <div style={{ fontSize: 11, fontWeight: 600, color: '#c5221f', marginBottom: 4 }}>错误信息</div>
+                              <pre style={{
+                                margin: 0, padding: 10, background: '#fff', borderRadius: 6,
+                                fontSize: 11, color: '#c5221f', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                                maxHeight: 200, overflowY: 'auto' as const, border: '1px solid #e8eaed',
+                              }}>
+                                {log.error_msg || '未知错误'}
+                              </pre>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Stats summary */}

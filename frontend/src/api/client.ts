@@ -282,3 +282,27 @@ export async function testLLMConnection(
   }
   return res.json();
 }
+
+export interface LLMLogItem {
+  id: number;
+  task_id: string | null;
+  call_type: string;
+  model: string;
+  prompt: string;
+  response: string;
+  status: string;
+  error_msg: string | null;
+  latency_ms: number | null;
+  created_at: string;
+}
+
+export async function getLLMLogs(adminKey: string, limit = 100, offset = 0): Promise<{ logs: LLMLogItem[]; total: number }> {
+  const res = await fetch(`${BASE}/api/admin/settings/llm/logs?limit=${limit}&offset=${offset}`, {
+    headers: adminHeaders(adminKey),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to fetch LLM logs');
+  }
+  return res.json();
+}

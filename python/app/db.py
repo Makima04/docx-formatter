@@ -92,6 +92,19 @@ def init_db():
                 value TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS llm_call_logs (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id     TEXT,
+                call_type   TEXT NOT NULL DEFAULT 'chat',
+                model       TEXT,
+                prompt      TEXT,
+                response    TEXT,
+                status      TEXT DEFAULT 'success',
+                error_msg   TEXT,
+                latency_ms  INTEGER,
+                created_at  TEXT DEFAULT (datetime('now'))
+            );
+
             CREATE INDEX IF NOT EXISTS idx_redeem_code ON redeem_codes(code);
             CREATE INDEX IF NOT EXISTS idx_batch_code ON batch_tasks(code);
         """)
@@ -119,6 +132,28 @@ def set_setting(key: str, value: str):
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             (key, value),
         )
+
+
+def insert_llm_log(task_id: Optional[str], call_type: str, model: str, prompt: str,
+                     response: str, status: str, error_msg: Optional[str] = None,
+                     latency_ms: Optional[int] = None):
+    """Insert an LLM call log record."""
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO llm_call_logs (task_id, call_type, model, prompt, response, status, error_msg, latency_ms) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (task_id, call_type, model, prompt, response, status, error_msg, latency_ms),
+        )
+
+
+def list_llm_logs(limit: int = 100, offset: int = 0) -> list[dict]:
+    """List recent LLM call logs."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM llm_call_logs ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 def _seed_builtin_templates(conn: sqlite3.Connection):

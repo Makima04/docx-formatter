@@ -211,7 +211,7 @@ async def run_format_pipeline(
                 logger.info(f"LLM classifying {len(uncertain)} uncertain paragraphs")
                 prompt = build_llm_classification_prompt(doc['paragraphs'], uncertain)
                 try:
-                    response = await llm_client.classify_paragraphs(prompt)
+                    response = await llm_client.classify_paragraphs(prompt, task_id=task_id)
                     updates = parse_llm_response(response)
                     if updates:
                         doc_json = json.dumps(doc, ensure_ascii=False)

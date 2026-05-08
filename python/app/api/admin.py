@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Header, Depends
 from pydantic import BaseModel
 
 from app.config import settings
-from app.db import get_setting, set_setting
+from app.db import get_setting, set_setting, list_llm_logs
 
 logger = logging.getLogger(__name__)
 
@@ -130,3 +130,14 @@ async def test_llm_connection(req: LLMConfigUpdate, _: None = Depends(verify_adm
         return {"ok": False, "message": "连接超时"}
     except Exception as e:
         return {"ok": False, "message": f"连接失败: {str(e)}"}
+
+
+@router.get("/settings/llm/logs")
+async def get_llm_logs(
+    limit: int = 100,
+    offset: int = 0,
+    _: None = Depends(verify_admin_key),
+):
+    """Get recent LLM call logs with full prompt/response content."""
+    logs = list_llm_logs(limit=limit, offset=offset)
+    return {"logs": logs, "total": len(logs)}
