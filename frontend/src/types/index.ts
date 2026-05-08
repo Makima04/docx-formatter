@@ -15,7 +15,7 @@ export interface TemplateCreate {
 
 export interface TaskInfo {
   task_id: string;
-  status: 'pending' | 'processing' | 'classifying' | 'assembling' | 'completed' | 'failed';
+  status: 'pending' | 'processing' | 'classifying' | 'assembling' | 'rendering' | 'validating' | 'repairing' | 'completed' | 'failed';
   progress: number;
   message: string;
   download_url: string | null;

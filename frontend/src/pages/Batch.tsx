@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import FileUpload from '../components/FileUpload';
 import { submitBatch, pollBatch, batchDownloadUrl, listTemplates } from '../api/client';
+import { formatDuration } from '../utils/format';
 import type { TemplateItem, BatchStatus } from '../types';
 
 interface Props {
@@ -16,6 +17,8 @@ export default function Batch({ code, onQuotaChange }: Props) {
   const [batch, setBatch] = useState<BatchStatus | null>(null);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const startedAtRef = useRef<number>(0);
 
   useEffect(() => {
     listTemplates().then(setTemplates).catch(() => {});
@@ -24,17 +27,43 @@ export default function Batch({ code, onQuotaChange }: Props) {
   // Poll batch status
   useEffect(() => {
     if (!batchId) return;
-    const timer = setInterval(async () => {
+
+    startedAtRef.current = Date.now();
+    const tick = () => setElapsed(Math.floor((Date.now() - startedAtRef.current) / 1000));
+    tick();
+    const elapsedTimer = setInterval(tick, 1000);
+
+    let pollTimer: ReturnType<typeof setInterval>;
+    let pollInterval = 800;
+
+    const poll = async () => {
       try {
         const data = await pollBatch(batchId);
         setBatch(data);
         if (data.status === 'completed' || data.status === 'partial' || data.status === 'failed') {
-          clearInterval(timer);
+          clearInterval(pollTimer);
+          clearInterval(elapsedTimer);
           onQuotaChange();
+          return;
+        }
+        // Adaptive: fast first 30s, then normal
+        const elapsed = Date.now() - startedAtRef.current;
+        const next = elapsed < 30_000 ? 800 : 2000;
+        if (next !== pollInterval) {
+          pollInterval = next;
+          clearInterval(pollTimer);
+          pollTimer = setInterval(poll, pollInterval);
         }
       } catch {}
-    }, 2000);
-    return () => clearInterval(timer);
+    };
+
+    poll();
+    pollTimer = setInterval(poll, pollInterval);
+
+    return () => {
+      clearInterval(pollTimer);
+      clearInterval(elapsedTimer);
+    };
   }, [batchId]);
 
   const handleSubmit = async () => {
@@ -56,6 +85,7 @@ export default function Batch({ code, onQuotaChange }: Props) {
     setBatchId(null);
     setBatch(null);
     setError('');
+    setElapsed(0);
   };
 
   return (
@@ -123,7 +153,14 @@ export default function Batch({ code, onQuotaChange }: Props) {
                 <div style={{ marginBottom: 16 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginBottom: 6 }}>
                     <span>进度</span>
-                    <span>{batch.completed} / {batch.total}</span>
+                    <span>
+                      {batch.completed} / {batch.total}
+                      {batch.status === 'processing' && (
+                        <span style={{ color: '#999', marginLeft: 10, fontSize: 13 }}>
+                          已用时 {formatDuration(elapsed)}
+                        </span>
+                      )}
+                    </span>
                   </div>
                   <div style={{ width: '100%', height: 8, background: '#e8eaed', borderRadius: 4, overflow: 'hidden' }}>
                     <div
@@ -135,6 +172,11 @@ export default function Batch({ code, onQuotaChange }: Props) {
                         width: `${batch.total ? (batch.completed / batch.total) * 100 : 0}%`,
                       }}
                     />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+                    <span style={{ fontSize: 12, color: '#999' }}>
+                      {batch.total ? Math.round((batch.completed / batch.total) * 100) : 0}%
+                    </span>
                   </div>
                 </div>
 

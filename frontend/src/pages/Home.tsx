@@ -27,7 +27,7 @@ export default function Home({ code, onQuotaChange }: Props) {
   const [done, setDone] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
 
-  const { task, polling, start } = useTaskPolling();
+  const { task, polling, startedAt, start } = useTaskPolling();
   const history = useHistory();
 
   useEffect(() => {
@@ -190,7 +190,7 @@ export default function Home({ code, onQuotaChange }: Props) {
         </button>
 
         {polling && task && (
-          <ProgressBar progress={task.progress} message={task.message} />
+          <ProgressBar task={task} startedAt={startedAt} />
         )}
 
         {task?.classification_result && task.classification_result.length > 0 && (
